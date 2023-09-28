@@ -1259,13 +1259,13 @@ contains
     use ESMF                  , only : ESMF_LOGMSG_ERROR, ESMF_FAILURE, ESMF_MAXSTR
     use ESMF                  , only : ESMF_KIND_R8
     use ESMF                  , only : ESMF_Field, ESMF_FieldRegrid
-    use ESMF                  , only : ESMF_FieldFill
+    use ESMF                  , only : ESMF_FieldGet, ESMF_FieldFill
     use ESMF                  , only : ESMF_TERMORDER_SRCSEQ, ESMF_Region_Flag, ESMF_REGION_TOTAL
     use ESMF                  , only : ESMF_REGION_SELECT
     use ESMF                  , only : ESMF_RouteHandle
     use med_internalstate_mod , only : mapnstod_consd, mapnstod_consf, mapnstod_consd, mapnstod
     use med_internalstate_mod , only : mapconsd, mapconsf
-    use med_internalstate_mod , only : mapfillv_bilnr
+    use med_internalstate_mod , only : mapfillv_bilnr, mapnames
     use med_methods_mod       , only : Field_diagnose => med_methods_Field_diagnose
 
     ! input/output variables
@@ -1289,7 +1289,12 @@ contains
     checkflag = .true.
 #endif
     lfldname = 'unknown'
-    if (present(fldname)) lfldname = trim(fldname)
+    if (present(fldname)) then
+      lfldname = trim(fldname)
+    else
+      call ESMF_FieldGet(field_src, name=lfldname, rc=rc)
+      if (chkerr(rc,__LINE__,u_FILE_u)) return
+    end if
 
     if (maptype == mapnstod_consd) then
        call ESMF_FieldRegrid(field_src, field_dst, routehandle=RouteHandles(mapnstod), &
@@ -1339,6 +1344,10 @@ contains
        call ESMF_FieldRegrid(field_src, field_dst, routehandle=RouteHandles(maptype), &
             termorderflag=ESMF_TERMORDER_SRCSEQ, checkflag=checkflag, zeroregion=ESMF_REGION_TOTAL, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
+       if (dbug_flag > 1) then
+          call Field_diagnose(field_dst, lfldname, " --> after "//trim(mapnames(maptype))//": ", rc=rc)
+          if (chkerr(rc,__LINE__,u_FILE_u)) return
+       end if
     end if
 
   end subroutine med_map_field

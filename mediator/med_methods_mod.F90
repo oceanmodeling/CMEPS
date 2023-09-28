@@ -650,7 +650,7 @@ contains
 
   !-----------------------------------------------------------------------------
 
-  subroutine med_methods_State_getNumFields(State, fieldnum, rc)
+  subroutine med_methods_State_getNumFields(State, fieldCount, flds_scalar_name, rc)
 
     ! ----------------------------------------------
     ! Get field number fieldnum name out of State
@@ -660,13 +660,16 @@ contains
     use ESMF  , only : ESMF_State, ESMF_Field, ESMF_StateGet, ESMF_STATEITEM_FIELD
     use ESMF  , only : ESMF_StateItem_Flag
 
-    type(ESMF_State), intent(in)    :: State
-    integer         , intent(inout) :: fieldnum
-    integer         , intent(out)   :: rc
+    type(ESMF_State), intent(in)            :: State
+    integer         , intent(inout)         :: fieldCount
+    character(len=*), optional, intent(in)  :: flds_scalar_name
+    integer         , optional, intent(out) :: rc
 
     ! local variables
-    type(ESMF_Field), pointer          :: fieldList(:)
-    character(len=*),parameter         :: subname='(med_methods_State_getNumFields)'
+    integer                         :: n
+    type(ESMF_Field), pointer       :: fieldList(:)
+    character(ESMF_MAXSTR), pointer :: lfieldnamelist(:)
+    character(len=*), parameter     :: subname='(med_methods_State_getNumFields)'
     ! ----------------------------------------------
 
     if (dbug_flag > 10) then
@@ -674,14 +677,22 @@ contains
     endif
     rc = ESMF_SUCCESS
 
-    nullify(fieldList)
-    call NUOPC_GetStateMemberLists(state, fieldList=fieldList, rc=rc)
+    call ESMF_StateGet(State, itemCount=fieldCount, rc=rc)
     if (chkerr(rc,__LINE__,u_FILE_u)) return
-    fieldnum = 0
-    if (associated(fieldList)) then
-       fieldnum = size(fieldList)
-       deallocate(fieldList)
-    endif
+
+    if (present(flds_scalar_name) .and. fieldCount > 0) then
+       allocate(lfieldnamelist(fieldCount))
+       call ESMF_StateGet(State, itemNameList=lfieldnamelist, rc=rc)
+       if (chkerr(rc,__LINE__,u_FILE_u)) return
+
+       do n = 1, fieldCount
+          if (trim(lfieldnamelist(n)) == trim(flds_scalar_name)) then
+             fieldCount = fieldCount-1
+          end if
+       end do
+
+       deallocate(lfieldnamelist)
+    end if
 
     if (dbug_flag > 10) then
       call ESMF_LogWrite(trim(subname)//": done", ESMF_LOGMSG_INFO)
@@ -690,7 +701,9 @@ contains
   end subroutine med_methods_State_getNumFields
 
   !-----------------------------------------------------------------------------
+
   subroutine med_methods_FB_reset(FB, value, rc)
+
     ! ----------------------------------------------
     ! Set all fields to value in FB
     ! If value is not provided, reset to 0.0

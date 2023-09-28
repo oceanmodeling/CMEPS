@@ -226,7 +226,8 @@ contains
               (ESMF_StateIsCreated(is_local%wrap%NStateImp(n1),rc=rc) .or. &
                ESMF_StateIsCreated(is_local%wrap%NStateExp(n1),rc=rc))) then
              ! Check number of fields in the state
-             call State_GetNumFields(is_local%wrap%NStateImp(n1), fieldCount, rc=rc)
+             call State_GetNumFields(is_local%wrap%NStateImp(n1), &
+                  fieldCount, flds_scalar_name=is_local%wrap%flds_scalar_name, rc=rc)
              if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
              ! create FBFrac

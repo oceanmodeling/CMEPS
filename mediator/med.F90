@@ -1719,8 +1719,10 @@ contains
 
                ! Check import FB, if there is no field in it then use export FB
                ! to provide mesh information
-               call State_GetNumFields(is_local%wrap%NStateImp(n2), fieldCount, rc=rc)
+               call State_GetNumFields(is_local%wrap%NStateImp(n2), &
+                    fieldCount, flds_scalar_name=is_local%wrap%flds_scalar_name, rc=rc)
                if (ChkErr(rc,__LINE__,u_FILE_u)) return
+
                if (fieldCount == 0) then
                  call FB_init(is_local%wrap%FBImp(n1,n2), is_local%wrap%flds_scalar_name, &
                       STgeom=is_local%wrap%NStateExp(n2), &
@@ -2297,7 +2299,7 @@ contains
     use ESMF , only : ESMF_Array, ESMF_ArrayCreate, ESMF_ArrayDestroy, ESMF_Field, ESMF_FieldGet
     use ESMF , only : ESMF_DistGrid, ESMF_FieldBundle, ESMF_FieldRegridGetArea, ESMF_FieldBundleGet
     use ESMF , only : ESMF_Mesh, ESMF_MeshGet, ESMF_MESHLOC_ELEMENT, ESMF_TYPEKIND_R8
-    use ESMF , only : ESMF_SUCCESS, ESMF_FAILURE, ESMF_LogWrite, ESMF_LOGMSG_INFO
+    use ESMF , only : ESMF_SUCCESS, ESMF_FAILURE, ESMF_LogWrite, ESMF_LOGMSG_INFO, ESMF_MAXSTR
     use ESMF , only : ESMF_FieldCreate, ESMF_FieldBundleCreate, ESMF_FieldBundleAdd
     use med_internalstate_mod , only : mesh_info_type
 
@@ -2315,6 +2317,7 @@ contains
     real(r8), allocatable :: ownedElemCoords(:)
     real(r8), pointer     :: dataptr(:)
     integer               :: n, dimcount, fieldcount
+    character(len=ESMF_MAXSTR)  :: fieldName
     character(len=*), parameter :: subname = '('//__FILE__//':med_meshinfo_create)'
     !-------------------------------------------------------------------------------
 
@@ -2326,10 +2329,11 @@ contains
     do n = 1,fieldCount
        call FB_getFieldN(FB, fieldnum=n, field=lfield, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
-       call ESMF_FieldGet(lfield, mesh=lmesh, dimcount=dimCount, rc=rc)
+       call ESMF_FieldGet(lfield, mesh=lmesh, dimcount=dimCount, name=fieldName, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
        if (dimCount==1) exit
     enddo
+    call ESMF_LogWrite(subname//' mesh information extracted from '//trim(fieldName), ESMF_LOGMSG_INFO)
 
     ! Determine dimensions in mesh
     call ESMF_MeshGet(lmesh, spatialDim=spatialDim, numOwnedElements=numOwnedElements, rc=rc)
