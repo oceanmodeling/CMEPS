@@ -171,6 +171,22 @@ contains
       deallocate(S_flds)
     end if
 
+    ! ---------------------------------------------------------------------
+    ! to ocn: wave fields
+    ! ---------------------------------------------------------------------
+    if (coastal_attr%wav_present .and. coastal_attr%ocn_present) then
+      allocate(S_flds(3))
+      S_flds = (/'Sw_wavsuu', & ! eastward_wave_radiation_stress 
+                 'Sw_wavsuv', & ! eastward_northward_wave_radiation_stress
+                 'Sw_wavsvv' /) ! northward_wave_radiation_stress
+      do n = 1,size(S_flds)
+         fldname = trim(S_flds(n))
+         call addfld_from(compwav, trim(fldname))
+         call addfld_to(compocn, trim(fldname))
+      end do
+      deallocate(S_flds)
+    end if
+
     !=====================================================================
     ! FIELDS TO WAVE (compwav)
     !=====================================================================
@@ -325,6 +341,28 @@ contains
                  mapbilnr_nstod, coastal_attr%mapnorm, coastal_attr%atm2ocn_smap)
             call addmrg_to(compocn, trim(fldname), &
                  mrg_from=compatm, mrg_fld=trim(fldname), mrg_type='copy')
+         end if
+      end do
+      deallocate(S_flds)
+    end if
+
+    ! ---------------------------------------------------------------------
+    ! to ocn: wave fields
+    ! ---------------------------------------------------------------------
+    if (coastal_attr%wav_present .and. coastal_attr%ocn_present) then
+      allocate(S_flds(3))
+      S_flds = (/'Sw_wavsuu', & ! eastward_wave_radiation_stress 
+                 'Sw_wavsuv', & ! eastward_northward_wave_radiation_stress
+                 'Sw_wavsvv' /) ! northward_wave_radiation_stress
+      do n = 1,size(S_flds)
+         fldname = trim(S_flds(n))
+         if (fldchk(is_local%wrap%FBExp(compocn),trim(fldname),rc=rc) .and. &
+             fldchk(is_local%wrap%FBImp(compwav,compwav),trim(fldname),rc=rc) &
+            ) then
+            call addmap_from(compwav, trim(fldname), compocn, &
+                 mapbilnr_nstod, coastal_attr%mapnorm, coastal_attr%wav2ocn_smap)
+            call addmrg_to(compocn, trim(fldname), &
+                 mrg_from=compwav, mrg_fld=trim(fldname), mrg_type='copy')
          end if
       end do
       deallocate(S_flds)
