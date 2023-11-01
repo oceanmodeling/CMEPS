@@ -206,6 +206,21 @@ contains
       deallocate(S_flds)
     end if
 
+    ! ---------------------------------------------------------------------
+    ! to wav: ocean fields 
+    ! ---------------------------------------------------------------------
+    if (coastal_attr%ocn_present .and. coastal_attr%wav_present) then
+      allocate(S_flds(2))
+      S_flds = (/'So_u', & ! ocn_current_zonal
+                 'So_v' /) ! ocn_current_merid
+      do n = 1,size(S_flds)
+         fldname = trim(S_flds(n))
+         call addfld_from(compocn, trim(fldname))
+         call addfld_to(compwav, trim(fldname))
+      end do
+      deallocate(S_flds)
+    end if
+
     call ESMF_LogWrite(trim(subname)//": done", ESMF_LOGMSG_INFO)
 
   end subroutine esmFldsExchange_coastal_advt
@@ -388,6 +403,27 @@ contains
                  mapbilnr_nstod, coastal_attr%mapnorm, coastal_attr%atm2wav_smap)
             call addmrg_to(compwav, trim(fldname), &
                  mrg_from=compatm, mrg_fld=trim(fldname), mrg_type='copy')
+         end if
+      end do
+      deallocate(S_flds)
+    end if
+
+    ! ---------------------------------------------------------------------
+    ! to wav: ocean fields 
+    ! ---------------------------------------------------------------------
+    if (coastal_attr%atm_present .and. coastal_attr%wav_present) then
+      allocate(S_flds(2))
+      S_flds = (/'So_u', & ! ocn_current_zonal
+                 'So_v' /) ! ocn_current_merid
+      do n = 1,size(S_flds)
+         fldname = trim(S_flds(n))
+         if (fldchk(is_local%wrap%FBExp(compwav),trim(fldname),rc=rc) .and. &
+             fldchk(is_local%wrap%FBImp(compocn,compocn),trim(fldname),rc=rc) &
+            ) then
+            call addmap_from(compocn, trim(fldname), compwav, &
+                 mapbilnr_nstod, coastal_attr%mapnorm, coastal_attr%ocn2wav_smap)
+            call addmrg_to(compwav, trim(fldname), &
+                 mrg_from=compocn, mrg_fld=trim(fldname), mrg_type='copy')
          end if
       end do
       deallocate(S_flds)
