@@ -294,7 +294,7 @@ contains
           ! If ice and atm are on the same mesh - a redist route handle has already been created
           maptype = mapfcopy
        else
-          if (trim(coupling_mode) == 'nems_orig' ) then
+          if (trim(coupling_mode(1:9)) == 'ufs.nfrac' ) then
              maptype = mapnstod_consd
           else
              maptype = mapconsd
@@ -346,7 +346,7 @@ contains
           ! If ocn and atm are on the same mesh - a redist route handle has already been created
           maptype = mapfcopy
        else
-          if (trim(coupling_mode) == 'nems_orig' ) then
+          if (trim(coupling_mode(1:9)) == 'ufs.nfrac' ) then
              maptype = mapnstod_consd
           else
              maptype = mapconsd
@@ -366,11 +366,8 @@ contains
        call med_map_field(field_src, field_dst, is_local%wrap%RH(compocn,compatm,:), maptype, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
 
-      ! Set 'aofrac' in FBfrac(compatm)
-       if (trim(coupling_mode) == 'nems_orig' .or. &
-           trim(coupling_mode) == 'nems_frac' .or. &
-           trim(coupling_mode) == 'nems_frac_aoflux' .or. &
-           trim(coupling_mode) == 'nems_frac_aoflux_sbs') then
+       ! Set 'aofrac' in FBfrac(compatm) if available
+       if ( fldbun_fldchk(is_local%wrap%FBImp(compatm,compatm), 'Sa_ofrac', rc=rc)) then
           call fldbun_getdata1d(is_local%wrap%FBImp(compatm,compatm), 'Sa_ofrac', Sa_ofrac, rc)
           if (ChkErr(rc,__LINE__,u_FILE_u)) return
           call fldbun_getdata1d(is_local%wrap%FBFrac(compatm), 'aofrac', aofrac, rc)
@@ -760,7 +757,7 @@ contains
 
           call t_startf('MED:'//trim(subname)//' fbfrac(compatm)')
           ! Determine maptype
-          if (trim(coupling_mode) == 'nems_orig' ) then
+          if (trim(coupling_mode(1:9)) == 'ufs.nfrac' ) then
              maptype = mapnstod_consd
           else
              if (med_map_RH_is_created(is_local%wrap%RH(compice,compatm,:),mapfcopy, rc=rc)) then
@@ -789,11 +786,8 @@ contains
              call med_map_field(field_src, field_dst, is_local%wrap%RH(compice,compatm,:), maptype, rc=rc)
              if (ChkErr(rc,__LINE__,u_FILE_u)) return
           end if
-          ! Set 'aofrac' from FBImp(compatm) to FBfrac(compatm)
-          if (trim(coupling_mode) == 'nems_orig' .or. &
-              trim(coupling_mode) == 'nems_frac' .or. &
-              trim(coupling_mode) == 'nems_frac_aoflux' .or. &
-              trim(coupling_mode) == 'nems_frac_aoflux_sbs') then
+          ! Set 'aofrac' from FBImp(compatm) to FBfrac(compatm) if available
+          if ( fldbun_fldchk(is_local%wrap%FBImp(compatm,compatm), 'Sa_ofrac', rc=rc)) then
              call fldbun_getdata1d(is_local%wrap%FBImp(compatm,compatm), 'Sa_ofrac', Sa_ofrac, rc)
              if (ChkErr(rc,__LINE__,u_FILE_u)) return
              call fldbun_getdata1d(is_local%wrap%FBFrac(compatm), 'aofrac', aofrac, rc)
