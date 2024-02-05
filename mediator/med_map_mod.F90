@@ -1390,7 +1390,7 @@ contains
     use ESMF                  , only : ESMF_TERMORDER_SRCSEQ, ESMF_Region_Flag
     use ESMF                  , only : ESMF_REGION_TOTAL, ESMF_REGION_SELECT
     use ESMF                  , only : ESMF_RouteHandle
-    use ESMF                  , only : ESMF_FieldWriteVTK
+    use ESMF                  , only : ESMF_FieldGet, ESMF_FieldWriteVTK
     use med_internalstate_mod , only : mapnstod_consd, mapnstod_consf, mapnstod_consd, mapnstod
     use med_internalstate_mod , only : mapconsd, mapconsf
     use med_internalstate_mod , only : mapfillv_bilnr, mapnames
