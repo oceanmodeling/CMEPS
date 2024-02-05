@@ -1027,7 +1027,6 @@ contains
     type(InternalState) :: is_local
     integer :: n1
     character(len=*), parameter :: subname = '('//__FILE__//':ModifyDecompofMesh)'
-
     !-----------------------------------------------------------
 
     call ESMF_LogWrite(trim(subname)//": called", ESMF_LOGMSG_INFO)
@@ -1356,7 +1355,6 @@ contains
     type(InternalState) :: is_local
     integer             :: n1
     character(len=*), parameter :: subname = '('//__FILE__//':RealizeFieldsWithTransferAccept)'
-
     !-----------------------------------------------------------
 
     call ESMF_LogWrite(trim(subname)//": called", ESMF_LOGMSG_INFO)
@@ -2231,7 +2229,6 @@ contains
     integer                 :: stop_n, stop_ymd
     logical, save           :: stopalarmcreated=.false.
     character(len=*), parameter :: subname = '('//__FILE__//':SetRunClock)'
-
     !-----------------------------------------------------------
 
     rc = ESMF_SUCCESS
