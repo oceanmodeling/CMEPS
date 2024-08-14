@@ -175,10 +175,23 @@ contains
     ! to ocn: wave fields
     ! ---------------------------------------------------------------------
     if (coastal_attr%wav_present .and. coastal_attr%ocn_present) then
-      allocate(S_flds(3))
-      S_flds = (/'Sw_wavsuu', & ! eastward_wave_radiation_stress 
-                 'Sw_wavsuv', & ! eastward_northward_wave_radiation_stress
-                 'Sw_wavsvv' /) ! northward_wave_radiation_stress
+      allocate(S_flds(16))
+      S_flds = (/'Sw_hs     ', & ! significant wave height
+                 'Sw_bhd    ', & ! Bernoulli head (J term)
+                 'Sw_tauox  ', & ! wave to ocean momentum flux x
+                 'Sw_tauoy  ', & ! wave to ocean momentum flux y
+                 'Sw_taubblx', & ! momentum flux due to bottom friction x
+                 'Sw_taubbly', & ! momentum flux due to bottom friction y
+                 'Sw_ubrx   ', & ! near bottom rms wave velocities x
+                 'Sw_ubry   ', & ! near bottom rms wave velocities y
+                 'Sw_thm    ', & ! mean wave direction
+                 'Sw_t0m1   ', & ! mean wave period
+                 'Sw_wnmean ', & ! mean wave number
+                 'Sw_ustokes', & ! eastward_surface_stokes_drift_current
+                 'Sw_vstokes', & ! northward_surface_stokes_drift_current
+                 'Sw_wavsuu ', & ! eastward_wave_radiation_stress
+                 'Sw_wavsuv ', & ! eastward_northward_wave_radiation_stress
+                 'Sw_wavsvv ' /) ! northward_wave_radiation_stress
       do n = 1,size(S_flds)
          fldname = trim(S_flds(n))
          call addfld_from(compwav, trim(fldname))
@@ -195,9 +208,10 @@ contains
     ! to wav: state fields
     ! ---------------------------------------------------------------------
     if (coastal_attr%atm_present .and. coastal_attr%wav_present) then
-      allocate(S_flds(2))
+      allocate(S_flds(3))
       S_flds = (/'Sa_u10m', & ! inst_zonal_wind_height10m
-                 'Sa_v10m' /) ! inst_merid_wind_height10m
+                 'Sa_v10m', & ! inst_merid_wind_height10m
+                 'So_h   ' /) ! sea_surface_height_above_sea_level
       do n = 1,size(S_flds)
          fldname = trim(S_flds(n))
          call addfld_from(compatm, trim(fldname))
@@ -365,10 +379,23 @@ contains
     ! to ocn: wave fields
     ! ---------------------------------------------------------------------
     if (coastal_attr%wav_present .and. coastal_attr%ocn_present) then
-      allocate(S_flds(3))
-      S_flds = (/'Sw_wavsuu', & ! eastward_wave_radiation_stress 
-                 'Sw_wavsuv', & ! eastward_northward_wave_radiation_stress
-                 'Sw_wavsvv' /) ! northward_wave_radiation_stress
+      allocate(S_flds(16))
+      S_flds = (/'Sw_hs     ', & ! significant wave height
+                 'Sw_bhd    ', & ! Bernoulli head (J term)
+                 'Sw_tauox  ', & ! wave to ocean momentum flux x
+                 'Sw_tauoy  ', & ! wave to ocean momentum flux y
+                 'Sw_taubblx', & ! momentum flux due to bottom friction x
+                 'Sw_taubbly', & ! momentum flux due to bottom friction y
+                 'Sw_ubrx   ', & ! near bottom rms wave velocities x
+                 'Sw_ubry   ', & ! near bottom rms wave velocities y
+                 'Sw_thm    ', & ! mean wave direction
+                 'Sw_t0m1   ', & ! mean wave period
+                 'Sw_wnmean ', & ! mean wave number
+                 'Sw_ustokes', & ! eastward_surface_stokes_drift_current
+                 'Sw_vstokes', & ! northward_surface_stokes_drift_current
+                 'Sw_wavsuu ', & ! eastward_wave_radiation_stress
+                 'Sw_wavsuv ', & ! eastward_northward_wave_radiation_stress
+                 'Sw_wavsvv ' /) ! northward_wave_radiation_stress
       do n = 1,size(S_flds)
          fldname = trim(S_flds(n))
          if (fldchk(is_local%wrap%FBExp(compocn),trim(fldname),rc=rc) .and. &
@@ -391,9 +418,10 @@ contains
     ! to wav: state fields 
     ! ---------------------------------------------------------------------
     if (coastal_attr%atm_present .and. coastal_attr%wav_present) then
-      allocate(S_flds(2))
+      allocate(S_flds(3))
       S_flds = (/'Sa_u10m', & ! inst_zonal_wind_height10m
-                 'Sa_v10m' /) ! inst_merid_wind_height10m
+                 'Sa_v10m', & ! inst_merid_wind_height10m
+                 'So_h   ' /) ! sea_surface_height_above_sea_level
       do n = 1,size(S_flds)
          fldname = trim(S_flds(n))
          if (fldchk(is_local%wrap%FBExp(compwav),trim(fldname),rc=rc) .and. &
