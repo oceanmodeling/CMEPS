@@ -2622,6 +2622,7 @@ contains
     do index=1,fieldCount
        call med_methods_FB_getNameN(FB, index, fieldname, rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
+
        call ESMF_FieldBundleGet(FB, fieldName=fieldname, field=field, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
        call ESMF_FieldGet(field, rank=fieldrank, name=fieldname, rc=rc)
@@ -2645,9 +2646,8 @@ contains
     if (nanfound) then
        call ESMF_LogWrite('ABORTING JOB', ESMF_LOGMSG_ERROR, line=__LINE__, file=u_FILE_u)
        rc = ESMF_FAILURE
-       return
     end if
-
+    
   end subroutine med_methods_FB_check_for_nans
 
   !-----------------------------------------------------------------------------
