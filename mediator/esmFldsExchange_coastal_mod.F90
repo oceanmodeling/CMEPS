@@ -11,6 +11,7 @@ module esmFldsExchange_coastal_mod
   use med_internalstate_mod , only : compatm
   use med_internalstate_mod , only : compocn
   use med_internalstate_mod , only : compwav
+  use med_internalstate_mod , only : compice
   use med_internalstate_mod , only : ncomps
   use med_internalstate_mod , only : coupling_mode
 
@@ -38,10 +39,17 @@ module esmFldsExchange_coastal_mod
     character(len=CX) :: ocn2wav_smap = 'unset'
     character(len=CX) :: wav2ocn_smap = 'unset'
     character(len=CX) :: wav2atm_smap = 'unset'
+
+    character(len=CX) :: atm2ice_smap = 'unset'
+    character(len=CX) :: ocn2ice_smap = 'unset'
+    character(len=CX) :: ice2ocn_smap = 'unset'
+    character(len=CX) :: ice2atm_smap = 'unset'
+
     character(len=CS) :: mapnorm      = 'one'
     logical           :: atm_present  = .false.
     logical           :: ocn_present  = .false.
     logical           :: wav_present  = .false.
+    logical           :: ice_present  = .false.
   end type
 
 !===============================================================================
@@ -140,11 +148,25 @@ contains
     ! to med: masks from components
     !----------------------------------------------------------
     call addfld_from(compocn, 'So_omask')
+    call addfld_from(compice, 'Si_imask')
 
     !----------------------------------------------------------
     ! to med: frac from components
     !----------------------------------------------------------
     call addfld_to(compatm, 'So_ofrac')
+          
+    if (coastal_attr%ice_present .and. coastal_attr%atm_present) then
+         call addfld_from(compice , 'Si_ifrac')
+         call addfld_to(compatm   , 'Si_ifrac')
+
+    end if
+
+    if (coastal_attr%ice_present .and. coastal_attr%ocn_present) then
+    !      call addfld_from(compocn, 'So_omask')
+          call addfld_to(compice   , 'So_ofrac')
+          call addfld_from(compice , 'Si_ifrac')
+          call addfld_to(compocn   , 'Si_ifrac')
+    end if
 
     !=====================================================================
     ! FIELDS TO OCEAN (compocn)
@@ -235,6 +257,83 @@ contains
       end do
       deallocate(S_flds)
     end if
+
+    ! ---------------------------------------------------------------------
+    ! to ice: atm fields
+    ! ---------------------------------------------------------------------
+    if (coastal_attr%atm_present .and. coastal_attr%ice_present) then
+      allocate(S_flds(14))
+      S_flds = (/'Sa_u10m',       & ! inst_zonal_wind_height10m
+                 'Sa_v10m',       & ! inst_merid_wind_height10m                                     
+                 'Sa_z',       & ! lowest atmospheric height                                     
+                 'Sa_t2m',    & ! tenperature at lowest atm level                               
+                 'Sa_q2m',    & ! Specific Humidity                                             
+                 'Sa_pslv',    & ! pressure bottom  Faxa_rain',  & ! Rain
+                 'Faxa_snow',  & ! Snow
+                 'Faxa_swvdr', & ! Short-wave
+                 'Faxa_swvdf', & ! Short-wave
+                 'Faxa_swndr', & ! Short-wave
+                 'Faxa_swndf', & ! Short-wave
+                 'Faxa_swnet', & ! Short-wave net
+                 'Faxa_lwdn' /) ! long-wave
+                 
+      do n = 1,size(S_flds)
+         fldname = trim(S_flds(n))
+         call addfld_from(compatm, trim(fldname))
+         call addfld_to(compice, trim(fldname))
+      end do
+      deallocate(S_flds)
+    end if
+
+    ! ---------------------------------------------------------------------
+    ! to ice: ocean fields 
+    ! ---------------------------------------------------------------------
+    if (coastal_attr%ocn_present .and. coastal_attr%ice_present) then
+      allocate(S_flds(7))
+      S_flds = (/'So_u',     & ! ocn_current_zonal
+                 'So_v',     & ! ocn_current_merid
+                 'So_t',     & ! SST
+                 'So_s',     & ! SSS 
+                 'So_hmix',     & ! depth of ml
+                 'So_dhdx',  & ! tilt-x 
+                 'So_dhdy'/)   ! tilt-y 
+                 !'Fioo_q'/)    ! heat flux 
+      do n = 1,size(S_flds)
+         fldname = trim(S_flds(n))
+         call addfld_from(compocn, trim(fldname))
+         call addfld_to(compice, trim(fldname))
+      end do
+      deallocate(S_flds)
+    end if 
+
+    ! ---------------------------------------------------------------------
+    ! to ocean: ice fields 
+    ! ---------------------------------------------------------------------
+    if (coastal_attr%ocn_present .and. coastal_attr%ice_present) then
+      allocate(S_flds(13))
+      S_flds = (/'Si_ifrac'  ,    & ! Ice area fraction aice 
+                 'Si_vice'   ,    & ! Ice volume 
+                 'Si_vsno'   ,    & ! Snow volume 
+                 'Si_uvel'   ,    & ! Ice u-velocity
+                 'Si_vvel'   ,    & ! Ice v-velocity
+                 'Fioi_meltw',    & ! Fresh water flux due to melting/freeze
+                 'Fioi_melth',    & ! Ice-to-ocean heat flux at base of ice
+                 'Fioi_taux' ,    & ! Ice-to-ocean surface stress in x-dir
+                 'Fioi_tauy' ,    & ! Ice-to-ocean surface stress in y-dir
+                 'Fioi_salt' ,    & ! Salinity flux due to melting/freeze
+                 'Fioi_swpen',    & ! Penatrive SW radiation flux 
+                 'Si_frzmlt' ,    & ! Energy used to create ice (all energy sst-tfrz)
+                 'Si_CdnIO' /)      ! ice drag coeff
+
+      do n = 1,size(S_flds)
+         fldname = trim(S_flds(n))
+         call addfld_from(compice, trim(fldname))
+         call addfld_to(compocn, trim(fldname))
+      end do
+      deallocate(S_flds)
+    end if
+
+
 
     call ESMF_LogWrite(trim(subname)//": done", ESMF_LOGMSG_INFO)
 
@@ -458,8 +557,161 @@ contains
       end do
       deallocate(S_flds)
     end if
+    
+    
+    !======================================================================
+    ! BEGIN FIELDS TO ICE (compice)
+    !======================================================================
+    ! ---------------------------------------------------------------------                      
+    ! To ice from atm
+    ! ---------------------------------------------------------------------                      
+    ! ----------------------------------------  
+    ! | Atmospheric Fields:                  |
+    ! ----------------------------------------
+    !   - zonal wind height 10m     [m/s]
+    !   - merid wind height 10m     [m/s]
+    !   - lowest atmospheric height [m] (defualt in CICE is 10m see model comp)
+    !   - Temperature at 10m        [k]
+    !   - Specific Humidity         [kg/kg]
+    !   - Pressure at 10m           [Pa]
+    !   - Rainfall rate             [kg/m/m/s]
+    !   - Snowfall rate             [kg/m/m/s]
+    !   - Net shortwave rad         [W/m/m] Other bands are derived from this
+    !   - Net longwave  rad         [W/m/m] 
+    ! ---------------------------------------
+    if (coastal_attr%atm_present .and. coastal_attr%ice_present) then                            
+      allocate(S_flds(14))                                                                       
+      S_flds = (/'Sa_u10m',    & ! inst_zonal_wind_height10m
+                 'Sa_v10m',    & ! inst_merid_wind_height10m                                     
+                 'Sa_z',       & ! lowest atmospheric height                                     
+                 'Sa_t2m',     & ! tenperature at lowest atm level                               
+                 'Sa_q2m',     & ! Specific Humidity                                             
+                 'Sa_pslv',    & ! pressure bottom                                               
+                 'Faxa_rain',  & ! Rain
+                 'Faxa_snow',  & ! Snow
+                 'Faxa_swvdr', & ! Short-wave
+                 'Faxa_swvdf', & ! Short-wave                                                    
+                 'Faxa_swndr', & ! Short-wave                                                    
+                 'Faxa_swndf', & ! Short-wave
+                 'Faxa_swnet', & ! Short-wave net
+                 'Faxa_lwdn' /)  ! long-wave                                                     
+      do n = 1,size(S_flds)
+         fldname = trim(S_flds(n))
+         if (fldchk(is_local%wrap%FBExp(compice),trim(fldname),rc=rc) .and. &
+             fldchk(is_local%wrap%FBImp(compatm,compatm),trim(fldname),rc=rc) &
+            ) then
+            call addmap_from(compatm, trim(fldname), compice, &
+                 mapbilnr_nstod, coastal_attr%mapnorm, coastal_attr%atm2ice_smap) !!mapnstod_consf conservative interp 
+            call addmrg_to(compice, trim(fldname), &
+                 mrg_from=compatm, mrg_fld=trim(fldname), mrg_type='copy')
+         end if
+      end do
+      deallocate(S_flds)
+    end if
+
+    ! ---------------------------------------------------------------------                      
+    ! To ice from ocn fields
+    ! --------------------------------------------------------------------- 
+    ! ----------------------------------------
+    ! | Oceanic fields:                      |
+    ! ----------------------------------------
+    !   - zonal current             [m/s]
+    !   - merid current             [m/s]
+    !   - Sea Surface temperature   [K]
+    !   - Sea surface salinity      [psu. (g/kg)]
+    !   - Mixed layer depth         [m]
+    !   - Zonal sea surface tilt    [1]
+    !   - Merid sea surface tilt    [1]
+    !   - deep ocean heatflux       [W/m/m]
+    ! ---------------------------------------
+
+    if (coastal_attr%ocn_present .and. coastal_attr%ice_present) then
+      allocate(S_flds(7))
+      S_flds = (/'So_u',     & ! ocn_current_zonal
+                 'So_v',     & ! ocn_current_merid
+                 'So_t',     & ! SST
+                 'So_s',     & ! SSS 
+                 'So_hmix',  & ! Mixed layer depth
+                 'So_dhdx',  & ! tilt-x 
+                 'So_dhdy'/)   ! tilt-y 
+!                 'Fioo_q'/)   ! heat flux  
 
     call ESMF_LogWrite(trim(subname)//": done", ESMF_LOGMSG_INFO)
+    do n = 1,size(S_flds)
+         fldname = trim(S_flds(n))
+         if (fldchk(is_local%wrap%FBExp(compice),trim(fldname),rc=rc) .and. &
+             fldchk(is_local%wrap%FBImp(compocn,compocn),trim(fldname),rc=rc) &
+            ) then
+            call addmap_from(compocn, trim(fldname), compice, &
+                 mapbilnr_nstod, coastal_attr%mapnorm, coastal_attr%ocn2ice_smap)
+            call addmrg_to(compice, trim(fldname), &
+                 mrg_from=compocn, mrg_fld=trim(fldname), mrg_type='copy')
+         end if
+      end do
+      deallocate(S_flds)
+    end if
+
+    !======================================================================
+    ! END FIELDS TO ICE (compice)
+    !======================================================================
+    
+    !======================================================================
+    ! BEGIN FIELDS FROM ICE (compice)
+    !======================================================================
+    ! ---------------------------------------------------------------------
+    ! To ocn from ice fields
+    ! ---------------------------------------------------------------------
+    ! ----------------------------------------
+    ! | Ice fields:                          |
+    ! ----------------------------------------
+    ! - Ice area fraction        [1]
+    ! - Ice volume               [m^3]
+    ! - Snow volume              [m^3]
+    ! - Ice merid vel.           [m/s]
+    ! - Ice Zonal vel.           [m/s]
+    ! - Fresh water flux         [kg/m/m/s]
+    ! - Heat flux at base of ice [W/m/m]
+    ! - Ice-to-Ocn merid stress  [N/m/m]
+    ! - Ice-to-Ocn zonal stress  [N/m/m]
+    ! - Salinity flux            [kg/m/m/s]
+    ! - Shortwave pen. rad       [W/m/m]
+    ! - Freeze melt potential    [W/m/m] (Internal energy mixed layer)
+    ! - Ice ocean drag           [1] (Computed by ice component)
+
+    if (coastal_attr%ocn_present .and. coastal_attr%ice_present) then
+      allocate(S_flds(13))
+      S_flds = (/'Si_ifrac'  ,    & ! Ice area fraction aice
+                 'Si_vice'   ,    & ! Ice volume
+                 'Si_vsno'   ,    & ! Snow volume
+                 'Si_uvel'   ,    & ! Ice u-velocity
+                 'Si_vvel'   ,    & ! Ice v-velocity
+                 'Fioi_meltw',    & ! Fresh water flux due to melting/freeze
+                 'Fioi_melth',    & ! Ice-to-ocean heat flux at base of ice
+                 'Fioi_taux' ,    & ! Ice-to-ocean surface stress in x-dir
+                 'Fioi_tauy' ,    & ! Ice-to-ocean surface stress in y-dir
+                 'Fioi_salt' ,    & ! Salinity flux due to melting/freeze
+                 'Fioi_swpen',    & ! Penatrive SW radiation flux 
+                 'Si_frzmlt' ,    & ! Energy used to create ice (all energy sst-tfrz)
+                 'Si_CdnIO' /)      ! ice drag
+      
+      call ESMF_LogWrite(trim(subname)//": done", ESMF_LOGMSG_INFO)
+      do n = 1,size(S_flds)
+         fldname = trim(S_flds(n))
+         if (fldchk(is_local%wrap%FBExp(compocn),trim(fldname),rc=rc) .and. &
+             fldchk(is_local%wrap%FBImp(compice,compice),trim(fldname),rc=rc) &
+            ) then
+            call addmap_from(compice, trim(fldname), compocn, &
+                 mapbilnr_nstod, coastal_attr%mapnorm, coastal_attr%ice2ocn_smap)
+            call addmrg_to(compocn, trim(fldname), &
+                 mrg_from=compice, mrg_fld=trim(fldname), mrg_type='copy')
+         end if
+      end do
+      deallocate(S_flds)
+    end if
+
+    !======================================================================
+    ! END FIELDS FROM ICE (compice)
+    !======================================================================
 
   end subroutine esmFldsExchange_coastal_init
 
@@ -511,6 +763,13 @@ contains
     if (ChkErr(rc,__LINE__,u_FILE_u)) return
     if (isPresent .and. isSet) then
        if (trim(cvalue) /= 'swav') coastal_attr%wav_present = .true.
+    end if
+
+    call NUOPC_CompAttributeGet(gcomp, name='ICE_model', &
+       value=cvalue, isPresent=isPresent, isSet=isSet, rc=rc)
+    if (ChkErr(rc,__LINE__,u_FILE_u)) return
+    if (isPresent .and. isSet) then
+       if (trim(cvalue) /= 'sice') coastal_attr%ice_present = .true.
     end if
 
     !----------------------------------------------------------
@@ -589,6 +848,33 @@ contains
     if (isPresent) then
        call NUOPC_CompAttributeGet(gcomp, name='ocn2wav_smapname', &
           value=coastal_attr%ocn2wav_smap, rc=rc)
+       if (chkerr(rc,__LINE__,u_FILE_u)) return
+    end if
+
+    ! to ice
+    call NUOPC_CompAttributeGet(gcomp, name='atm2ice_smapname', &
+       isPresent=isPresent, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
+    if (isPresent) then
+       call NUOPC_CompAttributeGet(gcomp, name='atm2ice_smapname', &
+          value=coastal_attr%atm2ice_smap, rc=rc)
+       if (chkerr(rc,__LINE__,u_FILE_u)) return
+    end if
+    call NUOPC_CompAttributeGet(gcomp, name='ocn2ice_smapname', &
+       isPresent=isPresent, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
+    if (isPresent) then
+       call NUOPC_CompAttributeGet(gcomp, name='ocn2ice_smapname', &
+          value=coastal_attr%ocn2ice_smap, rc=rc)
+       if (chkerr(rc,__LINE__,u_FILE_u)) return
+    end if
+
+    call NUOPC_CompAttributeGet(gcomp, name='ice2ocn_smapname', &
+       isPresent=isPresent, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
+    if (isPresent) then
+       call NUOPC_CompAttributeGet(gcomp, name='ice2ocn_smapname', &
+          value=coastal_attr%ice2ocn_smap, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
     end if
 
