@@ -252,7 +252,6 @@ contains
        endif
     endif
 
-
     if (alarmIsOn) then
        call ESMF_ClockGet(clock, currtime=currtime, starttime=starttime, rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
@@ -486,10 +485,6 @@ contains
        ! Close file
        call med_io_close(io_file, rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
-#ifndef CESMCOUPLED
-       call log_restart_fh(nextTime, startTime, 'cmeps', rc=rc)
-       if (ChkErr(rc,__LINE__,u_FILE_u)) return
-#endif
     endif
 
     !---------------------------------------
