@@ -293,7 +293,7 @@ contains
                  'So_v   ',  & ! ocn_current_merid
                  'So_t   ',  & ! SST
                  'So_s   ',  & ! SSS 
-                 'So_h',  & ! depth of ml
+                 'So_h   ',  & ! depth of ml
                  'So_dhdx',  & ! tilt-x 
                  'So_dhdy',  & ! tilt-y 
                  'Fioo_q '/)    ! heat flux 
@@ -630,7 +630,7 @@ contains
                  'So_v   ',  & ! ocn_current_merid
                  'So_t   ',  & ! SST
                  'So_s   ',  & ! SSS 
-                 'So_h',  & ! Mixed layer depth
+                 'So_h   ',  & ! depth of ml
                  'So_dhdx',  & ! tilt-x 
                  'So_dhdy',  & ! tilt-y 
                  'Fioo_qi'/)   ! heat flux  
