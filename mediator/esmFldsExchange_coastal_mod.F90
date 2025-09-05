@@ -306,7 +306,7 @@ contains
     end if 
 
     ! ---------------------------------------------------------------------
-    ! to ocean: ice fields 
+    ! to ocean: ice fields
     ! ---------------------------------------------------------------------
     if (coastal_attr%ocn_present .and. coastal_attr%ice_present) then
       allocate(S_flds(13))
