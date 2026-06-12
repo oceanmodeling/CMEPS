@@ -358,7 +358,7 @@ contains
 #ifdef CESMCOUPLED
     use shr_flux_mod    , only : shr_flux_adjust_constants
 #else
-    use flux_atmocn_mod , only : flux_adjust_constants
+    use ufs_flux_mod    , only : flux_adjust_constants
 #endif
 
     !-----------------------------------------------------------------------
@@ -991,14 +991,7 @@ contains
     use med_map_mod    , only : med_map_routehandles_init
     use med_methods_mod, only : FB_fldchk => med_methods_FB_fldchk
     use med_methods_mod, only : FB_diagnose  => med_methods_FB_diagnose
-#ifdef CESMCOUPLED
     use flux_atmocn_driver_mod, only : flux_atmocn_driver
-#else
-    use flux_atmocn_mod, only : flux_atmocn
-#endif
-#ifdef UFS_AOFLUX
-    use flux_atmocn_ccpp_mod, only : flux_atmocn_ccpp
-#endif
 
     ! Arguments
     type(ESMF_GridComp)                   :: gcomp
@@ -1056,7 +1049,7 @@ contains
     ! Note pbot, tbot and shum have already been mapped or are available on the aoflux grid
     if (compute_atm_thbot) then
        do n = 1,aoflux_in%lsize
-          if (aoflux_in%mask(n) /= 0.0_r8) then
+          if (aoflux_in%mask(n) /= 0 ) then
              aoflux_in%thbot(n) = aoflux_in%tbot(n)*((p0/aoflux_in%pbot(n))**rcp)
           end if
        end do
@@ -1066,18 +1059,18 @@ contains
           (trim(coupling_mode) == 'ufs.frac.aoflux')) then
           ! Add limiting factor to humidity to be consistent with UFS aoflux calculation
           do n = 1,aoflux_in%lsize
-             if (aoflux_in%mask(n) /= 0.0_r8) then
+             if (aoflux_in%mask(n) /= 0) then
                 aoflux_in%shum(n) = max(aoflux_in%shum(n), qmin)
              end if
           end do
           ! Use pbot as psfc for the initial pass since psfc provided by UFS atm is zero
-          if (maxval(aoflux_in%psfc, mask=(aoflux_in%mask/= 0.0_r8)) < 100.0_r8) then
+          if (maxval(aoflux_in%psfc, mask=(aoflux_in%mask /= 0)) < 100.0_r8) then
              aoflux_in%psfc(:) = aoflux_in%pbot(:)
              call ESMF_LogWrite(trim(subname)//" : using pbot as psfc for initial pass!", ESMF_LOGMSG_INFO)
           end if
        end if
        do n = 1,aoflux_in%lsize
-          if (aoflux_in%mask(n) /= 0.0_r8) then
+          if (aoflux_in%mask(n) /= 0) then
              aoflux_in%dens(n) = aoflux_in%pbot(n)/(rdair*(1.0_r8 + 0.608_r8*aoflux_in%shum(n))*aoflux_in%tbot(n))
           end if
        end do
@@ -1102,32 +1095,18 @@ contains
          ustar_sv=aoflux_out%ustar, re_sv=aoflux_out%re, ssq_sv=aoflux_out%ssq, missval=0.0_r8)
 
 #else
-#ifdef UFS_AOFLUX
-     if (trim(aoflux_code) == 'ccpp') then
-       call flux_atmocn_ccpp(gcomp=gcomp, maintask=maintask, logunit=logunit, &
-            nMax=aoflux_in%lsize, psfc=aoflux_in%psfc, &
-            pbot=aoflux_in%pbot, tbot=aoflux_in%tbot, qbot=aoflux_in%shum, lwdn=aoflux_in%lwdn, &
-            zbot=aoflux_in%zbot, garea=aoflux_in%garea, ubot=aoflux_in%ubot, usfc=aoflux_in%usfc, vbot=aoflux_in%vbot, &
-            vsfc=aoflux_in%vsfc, rbot=aoflux_in%dens, ts=aoflux_in%tocn, mask=aoflux_in%mask, &
-            sen=aoflux_out%sen, lat=aoflux_out%lat, lwup=aoflux_out%lwup, evp=aoflux_out%evap, &
-            taux=aoflux_out%taux, tauy=aoflux_out%tauy, tref=aoflux_out%tref, qref=aoflux_out%qref, &
-            duu10n=aoflux_out%duu10n, ustar_sv=aoflux_out%ustar, re_sv=aoflux_out%re, ssq_sv=aoflux_out%ssq, &
-            missval=0.0_r8)
-     else
-#endif
-       call flux_atmocn (logunit=logunit, &
-            nMax=aoflux_in%lsize, mask=aoflux_in%mask, &
-            zbot=aoflux_in%zbot, ubot=aoflux_in%ubot, vbot=aoflux_in%vbot, thbot=aoflux_in%thbot, qbot=aoflux_in%shum, &
-            rbot=aoflux_in%dens, tbot=aoflux_in%tbot, us=aoflux_in%uocn, vs=aoflux_in%vocn, ts=aoflux_in%tocn, &
-            ocn_surface_flux_scheme=ocn_surface_flux_scheme, &
-            sen=aoflux_out%sen, lat=aoflux_out%lat, lwup=aoflux_out%lwup, evap=aoflux_out%evap, &
-            taux=aoflux_out%taux, tauy=aoflux_out%tauy, tref=aoflux_out%tref, qref=aoflux_out%qref, &
-            duu10n=aoflux_out%duu10n, &
-            missval=0.0_r8)
-#ifdef UFS_AOFLUX
-     end if
-#endif
-
+    call flux_atmocn_driver(ocn_surface_flux_scheme,                                           &
+         gcomp=gcomp, garea=aoflux_in%garea, maintask=maintask,                                &
+         logunit=logunit, nMax=aoflux_in%lsize, mask=aoflux_in%mask,                           &
+         zbot=aoflux_in%zbot, ubot=aoflux_in%ubot, vbot=aoflux_in%vbot, qbot=aoflux_in%shum,   &
+         rbot=aoflux_in%dens, tbot=aoflux_in%tbot, thbot=aoflux_in%thbot, pbot=aoflux_in%pbot, &
+         ts=aoflux_in%tocn, us=aoflux_in%uocn, vs=aoflux_in%vocn,                              &
+         usfc=aoflux_in%usfc, vsfc=aoflux_in%vsfc, psfc=aoflux_in%psfc, lwdn=aoflux_in%lwdn,   &
+         sen=aoflux_out%sen, lat=aoflux_out%lat, lwup=aoflux_out%lwup,                         &
+         taux=aoflux_out%taux, tauy=aoflux_out%tauy, evap=aoflux_out%evap,                     &
+         tref=aoflux_out%tref, qref=aoflux_out%qref, duu10n=aoflux_out%duu10n,                 &
+         missval=0.0_r8, ustar_sv=aoflux_out%ustar, re_sv=aoflux_out%re, ssq_sv=aoflux_out%ssq, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
 #endif
 
     do n = 1,aoflux_in%lsize
@@ -1618,13 +1597,19 @@ end subroutine med_aofluxes_map_ogrid2xgrid_input
     end if
 
     ! extra fields for CCPP aoflux
-    if (trim(aoflux_code) == 'ccpp') then
-       call fldbun_getfldptr(fldbun_a, 'Sa_u10m', aoflux_in%usfc, xgrid=xgrid, rc=rc)
-       if (chkerr(rc,__LINE__,u_FILE_u)) return
-       call fldbun_getfldptr(fldbun_a, 'Sa_v10m', aoflux_in%vsfc, xgrid=xgrid, rc=rc)
-       if (chkerr(rc,__LINE__,u_FILE_u)) return
-       call fldbun_getfldptr(fldbun_a, 'Faxa_lwdn', aoflux_in%lwdn, xgrid=xgrid, rc=rc)
-       if (chkerr(rc,__LINE__,u_FILE_u)) return
+    if (trim(coupling_mode) /= 'cesm') then
+       if (trim(aoflux_code) == 'ccpp') then
+          call fldbun_getfldptr(fldbun_a, 'Sa_u10m', aoflux_in%usfc, xgrid=xgrid, rc=rc)
+          if (chkerr(rc,__LINE__,u_FILE_u)) return
+          call fldbun_getfldptr(fldbun_a, 'Sa_v10m', aoflux_in%vsfc, xgrid=xgrid, rc=rc)
+          if (chkerr(rc,__LINE__,u_FILE_u)) return
+          call fldbun_getfldptr(fldbun_a, 'Faxa_lwdn', aoflux_in%lwdn, xgrid=xgrid, rc=rc)
+          if (chkerr(rc,__LINE__,u_FILE_u)) return
+       else
+          allocate(aoflux_in%usfc(lsize), source=0.0_R8)
+          allocate(aoflux_in%vsfc(lsize), source=0.0_R8)
+          allocate(aoflux_in%lwdn(lsize), source=0.0_R8)
+       end if
     end if
 
     ! bottom level potential temperature will need to be computed if not received from the atm
@@ -1642,17 +1627,8 @@ end subroutine med_aofluxes_map_ogrid2xgrid_input
        call fldbun_getfldptr(fldbun_a, 'Sa_dens', aoflux_in%dens, xgrid=xgrid, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
     end if
-
-    ! The following conditional captures the cases where aoflux_in%psfc is needed in calls
-    ! to flux_atmocn / flux_atmocn_ccpp. Note that coupling_mode=='cesm' is equivalent to
-    ! the CESMCOUPLED CPP token, and coupling_mode(1:3)=='ufs' is roughly equivalent to
-    ! the UFS_AOFLUX CPP token (noting that we should only be in this subroutine if using
-    ! one of the aoflux variants of the ufs coupling_mode).
-    if ((trim(coupling_mode) == 'cesm') .or. &
-         (coupling_mode(1:3) == 'ufs' .and. trim(aoflux_code) == 'ccpp')) then
-       call fldbun_getfldptr(fldbun_a, 'Sa_pslv', aoflux_in%psfc, xgrid=xgrid, rc=rc)
-       if (chkerr(rc,__LINE__,u_FILE_u)) return
-    end if
+    call fldbun_getfldptr(fldbun_a, 'Sa_pslv', aoflux_in%psfc, xgrid=xgrid, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
 
     ! if either density or potential temperature are computed, will need bottom level pressure
     if (compute_atm_dens .or. compute_atm_thbot) then

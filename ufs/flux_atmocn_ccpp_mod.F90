@@ -14,7 +14,7 @@ module flux_atmocn_ccpp_mod
   use physcons,        only : hvap => con_hvap
   use physcons,        only : sbc => con_sbc
 
-  use MED_data,        only : physics 
+  use MED_data,        only : physics
   use med_ccpp_driver, only : med_ccpp_driver_init
   use med_ccpp_driver, only : med_ccpp_driver_run
   use med_ccpp_driver, only : med_ccpp_driver_finalize
@@ -32,7 +32,7 @@ module flux_atmocn_ccpp_mod
 
   private ! default private
 
-  public :: flux_atmOcn_ccpp ! computes atm/ocn fluxes
+  public :: flux_atmocn_ccpp ! computes atm/ocn fluxes
 
   integer, save           :: restart_freq
   integer                 :: layout(2)
@@ -52,58 +52,57 @@ module flux_atmocn_ccpp_mod
 contains
 !===============================================================================
 
-  subroutine flux_atmOcn_ccpp(gcomp, maintask, logunit, nMax, mask, psfc, pbot, &
-             tbot, qbot, zbot, garea, ubot, usfc, vbot, vsfc, rbot, ts, lwdn, sen, lat, &
-             lwup, evp, taux, tauy, tref, qref, duu10n, ustar_sv, re_sv, ssq_sv, missval)
-
-    implicit none
+  subroutine flux_atmocn_ccpp(gcomp, garea, maintask, logunit, nMax, mask, &
+       pbot, tbot, qbot, zbot, ubot, vbot, rbot, ts, usfc, vsfc,           &
+       psfc, lwdn, spval, sen, lat, lwup, evap, taux, tauy, tref, qref,    &
+       duu10n, ustar_sv, re_sv, ssq_sv, rc)
 
     !--- input arguments --------------------------------
-    type(ESMF_GridComp), intent(in)    :: gcomp       ! gridded component
-    logical , intent(in)  :: maintask  ! main task
+    type(ESMF_GridComp), intent(in) :: gcomp       ! gridded component
+    real(r8), intent(in)  :: garea(nMax) ! grid area                      (m^2)
+    logical , intent(in)  :: maintask    ! main task
     integer , intent(in)  :: logunit     ! log file unit number
     integer , intent(in)  :: nMax        ! data vector length
     integer , intent(in)  :: mask (nMax) ! ocn domain mask
-    real(r8), intent(in)  :: psfc(nMax)  ! atm P (surface)                (Pa)
     real(r8), intent(in)  :: pbot(nMax)  ! atm P (bottom)                 (Pa)
     real(r8), intent(in)  :: tbot(nMax)  ! atm T (bottom)                 (K)
     real(r8), intent(in)  :: qbot(nMax)  ! atm specific humidity (bottom) (kg/kg)
     real(r8), intent(in)  :: zbot(nMax)  ! atm level height               (m)
-    real(r8), intent(in)  :: garea(nMax) ! grid area                      (m^2)
     real(r8), intent(in)  :: ubot(nMax)  ! atm u wind (bottom)            (m/s)
-    real(r8), intent(in)  :: usfc(nMax)  ! atm u wind (surface)           (m/s)
-    real(r8), intent(in)  :: vbot(nMax)  ! atm v wind (bottom)            (m/s)    
-    real(r8), intent(in)  :: vsfc(nMax)  ! atm v wind (surface)           (m/s)    
-    real(r8), intent(in)  :: rbot(nMax)  ! atm density                    (kg/m^3)    
-    real(r8), intent(in)  :: lwdn(nMax)  ! atm lw downward                (W/m^2)
+    real(r8), intent(in)  :: vbot(nMax)  ! atm v wind (bottom)            (m/s)
+    real(r8), intent(in)  :: rbot(nMax)  ! atm density                    (kg/m^3)
     real(r8), intent(in)  :: ts(nMax)    ! ocn surface temperature        (K)
-    real(r8), intent(in), optional :: missval ! masked value
+    real(r8), intent(in)  :: usfc(nMax)  ! atm u wind (surface)           (m/s)
+    real(r8), intent(in)  :: vsfc(nMax)  ! atm v wind (surface)           (m/s)
+    real(r8), intent(in)  :: psfc(nMax)  ! atm P (surface)                (Pa)
+    real(r8), intent(in)  :: lwdn(nMax)  ! atm lw downward                (W/m^2)
+    real(r8), intent(in)  :: spval       ! masked value
 
     !--- output arguments -------------------------------
-    real(r8), intent(out) :: sen(nMax)    ! heat flux: sensible            (W/m^2)
-    real(r8), intent(out) :: lat(nMax)    ! heat flux: latent              (W/m^2)
-    real(r8), intent(out) :: lwup(nMax)   ! heat flux: lw upward           (W/m^2)
-    real(r8), intent(out) :: evp(nMax)    ! heat flux: evap                ((kg/s)/m^2)
-    real(r8), intent(out) :: taux(nMax)   ! surface stress, zonal          (N)
-    real(r8), intent(out) :: tauy(nMax)   ! surface stress, maridional     (N)
-    real(r8), intent(out) :: tref (nMax)  ! diag: 2m ref height T          (K)
-    real(r8), intent(out) :: qref(nMax)   ! diag: 2m ref humidity          (kg/kg)
-    real(r8), intent(out) :: duu10n(nMax) ! diag: 10m wind speed squared (m/s)^2
+    real(r8), intent(out) :: sen(nMax)      ! heat flux: sensible            (W/m^2)
+    real(r8), intent(out) :: lat(nMax)      ! heat flux: latent              (W/m^2)
+    real(r8), intent(out) :: lwup(nMax)     ! heat flux: lw upward           (W/m^2)
+    real(r8), intent(out) :: evap(nMax)     ! heat flux: evap                ((kg/s)/m^2)
+    real(r8), intent(out) :: taux(nMax)     ! surface stress, zonal          (N)
+    real(r8), intent(out) :: tauy(nMax)     ! surface stress, maridional     (N)
+    real(r8), intent(out) :: tref (nMax)    ! diag: 2m ref height T          (K)
+    real(r8), intent(out) :: qref(nMax)     ! diag: 2m ref humidity          (kg/kg)
+    real(r8), intent(out) :: duu10n(nMax)   ! diag: 10m wind speed squared (m/s)^2
     real(r8), intent(out) :: ustar_sv(nMax) ! diag: ustar
-    real(r8), intent(out) :: re_sv (nMax) ! diag: sqrt of exchange coefficient (water)
-    real(r8), intent(out) :: ssq_sv(nMax) ! diag: sea surface humidity (kg/kg)
+    real(r8), intent(out) :: re_sv (nMax)   ! diag: sqrt of exchange coefficient (water)
+    real(r8), intent(out) :: ssq_sv(nMax)   ! diag: sea surface humidity (kg/kg)
+    integer,  intent(out) :: rc             ! return code
 
     !--- local variables --------------------------------
     type(ESMF_Clock)        :: mclock
     type(ESMF_Time)         :: currtime, starttime
     type(ESMF_TimeInterval) :: timeStep
     type(InternalState)     :: is_local
-    integer                 :: n, rc
-    real(r8)                :: spval
+    integer                 :: n
     logical                 :: isPresent, isSet
     character(len=cs)       :: cvalue, cname
     logical, save           :: first_call = .true.
-    character(len=*), parameter :: subname=' (flux_atmOcn_ccpp) '
+    character(len=*), parameter :: subname=' (flux_atmocn_ccpp) '
     !---------------------------------------
 
     rc = ESMF_SUCCESS
@@ -111,13 +110,6 @@ contains
     nullify(is_local%wrap)
     call ESMF_GridCompGetInternalState(gcomp, is_local, rc)
     if (chkerr(rc,__LINE__,u_FILE_u)) return
-
-    ! missing value
-    if (present(missval)) then
-       spval = missval
-    else
-       spval = shr_const_spval
-    endif
 
     !----------------------
     ! Determine clock, starttime and currtime
@@ -142,7 +134,7 @@ contains
        call physics%sfcprop%create(nMax,physics%model)
        call physics%diag%create(nMax)
 
-       ! initalize dimension 
+       ! initalize dimension
        physics%init%im = nMax
 
        ! determine CCPP/physics specific options
@@ -171,7 +163,7 @@ contains
           read(cvalue,*) physics%model%ivegsrc
        end if
 
-       ! redrag 
+       ! redrag
        call NUOPC_CompAttributeGet(gcomp, name="ccpp_phy_redrag", value=cvalue, isPresent=isPresent, isSet=isSet, rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
        physics%model%redrag = .true.
@@ -187,7 +179,7 @@ contains
           read(cvalue,*) physics%model%lsm
        end if
 
-       ! frac_grid 
+       ! frac_grid
        call NUOPC_CompAttributeGet(gcomp, name="ccpp_phy_frac_grid", value=cvalue, isPresent=isPresent, isSet=isSet, rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
        physics%model%frac_grid = .true.
@@ -219,7 +211,7 @@ contains
           if (trim(cvalue) .eq. '.false.' .or. trim(cvalue) .eq. 'false') physics%model%cplflx = .false.
        end if
 
-       ! lheatstrg 
+       ! lheatstrg
        call NUOPC_CompAttributeGet(gcomp, name="ccpp_phy_lheatstrg", value=cvalue, isPresent=isPresent, isSet=isSet, rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
        physics%model%lheatstrg = .true.
@@ -269,7 +261,7 @@ contains
           end if
        end if
 
-       ! input directory for tiled CS grid files 
+       ! input directory for tiled CS grid files
        call NUOPC_CompAttributeGet(gcomp, name='ccpp_input_dir', value=cvalue, isPresent=isPresent, isSet=isSet, rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
 
@@ -373,8 +365,8 @@ contains
     physics%interstitial%wind = sqrt(ubot(:)*ubot(:)+vbot(:)*vbot(:))
     physics%interstitial%prslki = physics%statein%prsik(:)/physics%statein%prslk(:)
 
-    ! init required variables to mimic GFS_surface_composites_pre (assumes no ice) 
-    physics%interstitial%uustar_water(:) = physics%sfcprop%uustar(:) 
+    ! init required variables to mimic GFS_surface_composites_pre (assumes no ice)
+    physics%interstitial%uustar_water(:) = physics%sfcprop%uustar(:)
     physics%sfcprop%tsfco(:) = ts(:)
     physics%sfcprop%tsfc(:) = ts(:)
     physics%interstitial%tsfc_water(:) = physics%sfcprop%tsfc(:)
@@ -410,20 +402,20 @@ contains
           sen(n)  = -1.0_r8*physics%interstitial%hflx_water(n)*rbot(n)*cp
           lat(n)  = -1.0_r8*physics%interstitial%evap_water(n)*rbot(n)*hvap
           lwup(n) = -1.0_r8*(semis_water*sbc*ts(n)**4+(1.0_r8-semis_water)*lwdn(n))
-          evp(n)  = lat(n)/hvap
+          evap(n) = lat(n)/hvap
           taux(n) = rbot(n)*physics%interstitial%stress_water(n)*ubot(n)/physics%interstitial%wind(n)
           tauy(n) = rbot(n)*physics%interstitial%stress_water(n)*vbot(n)/physics%interstitial%wind(n)
           tref(n) = physics%sfcprop%t2m(n)
           qref(n) = physics%sfcprop%q2m(n)
           duu10n(n) = physics%interstitial%wind(n)*physics%interstitial%wind(n)
-          ustar_sv(n) = physics%interstitial%uustar_water(n) 
+          ustar_sv(n) = physics%interstitial%uustar_water(n)
           re_sv(n) = physics%interstitial%cmm_water(n)
           ssq_sv(n) = physics%interstitial%qss_water(n)
        else
           sen(n)  = spval
           lat(n)  = spval
           lwup(n) = spval
-          evp(n)  = spval
+          evap(n) = spval
           taux(n) = spval
           tauy(n) = spval
           tref(n) = spval
@@ -441,7 +433,7 @@ contains
     ! set first call flag
     first_call = .false.
 
-  end subroutine flux_atmOcn_ccpp
+  end subroutine flux_atmocn_ccpp
 
   !===============================================================================
   subroutine string_listGetName(list, k, name, rc)
@@ -552,5 +544,4 @@ contains
     string_countChar = count
 
   end function string_countChar
-
 end module flux_atmocn_ccpp_mod

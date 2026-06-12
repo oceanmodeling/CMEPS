@@ -1,4 +1,4 @@
-MODULE ufs_const_mod
+module ufs_const_mod
 
    use ufs_kind_mod, only : R8 => shr_kind_r8
 
@@ -97,4 +97,4 @@ contains
 
 !-----------------------------------------------------------------------------
 
-END MODULE ufs_const_mod
+end module ufs_const_mod
