@@ -174,7 +174,7 @@ contains
     ! to ocn: state fields
     ! ---------------------------------------------------------------------
     if (coastal_attr%atm_present .and. coastal_attr%ocn_present) then
-      allocate(S_flds(9))
+      allocate(S_flds(10))
       S_flds = (/'Sa_u10m   ', & ! inst_zonal_wind_height10m
                  'Sa_v10m   ', & ! inst_merid_wind_height10m
                  'Sa_pslv   ', & ! inst_pres_height_surface!
@@ -183,7 +183,8 @@ contains
                  'Faxa_lwdn ', & ! mean_down_lw_flx
                  'Faxa_swdn ', & ! mean_down_sw_flx
                  'Faxa_swnet', & ! mean_net_sw_flx
-                 'Faxa_rain ' /) ! mean_prec_rate
+                 'Faxa_rain ', & ! mean_prec_rate
+                 'Faxa_snow ' /) ! mean_fprec_rate
       do n = 1,size(S_flds)
          fldname = trim(S_flds(n))
          call addfld_from(compatm, trim(fldname))
@@ -451,7 +452,7 @@ contains
     ! to ocn: state fields
     ! ---------------------------------------------------------------------
     if (coastal_attr%atm_present .and. coastal_attr%ocn_present) then
-      allocate(S_flds(9))
+      allocate(S_flds(10))
       S_flds = (/'Sa_u10m   ', & ! inst_zonal_wind_height10m
                  'Sa_v10m   ', & ! inst_merid_wind_height10m
                  'Sa_pslv   ', & ! inst_pres_height_surface!
@@ -460,7 +461,8 @@ contains
                  'Faxa_lwdn ', & ! mean_down_lw_flx
                  'Faxa_swdn ', & ! mean_down_sw_flx
                  'Faxa_swnet', & ! mean_net_sw_flx
-                 'Faxa_rain ' /) ! mean_prec_rate
+                 'Faxa_rain ', & ! mean_prec_rate
+                 'Faxa_snow ' /) ! mean_fprec_rate
       do n = 1,size(S_flds)
          fldname = trim(S_flds(n))
          if (fldchk(is_local%wrap%FBExp(compocn),trim(fldname),rc=rc) .and. &
