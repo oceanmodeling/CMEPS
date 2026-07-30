@@ -64,10 +64,10 @@ def _main_func():
         skip_mediator = False
 
     if ocn_model == 'mom':
-        gmake_args += "USE_FMS=TRUE"
+        gmake_args += " USE_FMS=TRUE"
 
     if link_libs is not None:
-        gmake_args += 'USER_SLIBS="{}"'.format(link_libs)
+        gmake_args += ' USER_SLIBS="{}"'.format(link_libs)
 
     comp_classes = case.get_values("COMP_CLASSES")
     for comp in comp_classes:
@@ -94,6 +94,7 @@ def _main_func():
         if not skip_mediator:
             out.write(os.path.join(cmeps_dir, "mediator") + "\n")
             out.write(os.path.join(cmeps_dir, "cesm", "flux_atmocn") + "\n")
+        out.write(os.path.join(cmeps_dir, "cesm", "share_wrappers") + "\n")
         out.write(os.path.join(cmeps_dir, "cesm", "driver") + "\n")
 
     # build model executable

@@ -15,22 +15,26 @@ module med_methods_mod
   use med_constants_mod  , only : czero => med_constants_czero
   use med_constants_mod  , only : spval_init => med_constants_spval_init
   use med_utils_mod      , only : ChkErr => med_utils_ChkErr
+  use med_field_info_mod , only : med_field_info_type, med_field_info_esmf_fieldcreate
   use shr_log_mod        , only : shr_log_error
   implicit none
   private
 
   interface med_methods_FieldPtr_compare ; module procedure &
     med_methods_FieldPtr_compare1, &
-    med_methods_FieldPtr_compare2
+    med_methods_FieldPtr_compare2, &
+    med_methods_FieldPtr_compare3
   end interface
 
   interface med_methods_check_for_nans
      module procedure med_methods_check_for_nans_1d
      module procedure med_methods_check_for_nans_2d
+     module procedure med_methods_check_for_nans_3d
   end interface med_methods_check_for_nans
 
   ! used/reused in module
-  logical, public               :: mediator_checkfornans  ! set in med.F90 AdvertiseFields
+  logical, public               :: mediator_checkfornans   ! set in med.F90 AdvertiseFields
+  logical, public               :: water_tracers_do_checks ! set in med.F90 AdvertiseFields
   logical                       :: isPresent
   character(len=1024)           :: msgString
   type(ESMF_FieldStatus_Flag)   :: status
@@ -52,10 +56,12 @@ module med_methods_mod
   public med_methods_FB_getNumflds
   public med_methods_FB_Field_diagnose
   public med_methods_FB_GeomPrint
-  public med_methods_FB_getdata2d
   public med_methods_FB_getdata1d
+  public med_methods_FB_getdata2d
+  public med_methods_FB_getdata3d
   public med_methods_FB_getmesh
   public med_methods_FB_check_for_nans
+  public med_methods_FB_check_wtracers
 
   public med_methods_State_reset
   public med_methods_State_diagnose
@@ -66,6 +72,7 @@ module med_methods_mod
 
   public med_methods_Field_getdata1d
   public med_methods_Field_getdata2d
+  public med_methods_Field_getdata3d
   public med_methods_Field_diagnose
   public med_methods_Field_GeomPrint
   public med_methods_FieldPtr_compare
@@ -112,10 +119,11 @@ contains
     integer            :: lrank
     integer            :: fieldCount
     integer            :: ungriddedCount
-    integer            :: ungriddedLBound(1)
-    integer            :: ungriddedUBound(1)
+    integer            :: ungriddedLBound(2)
+    integer            :: ungriddedUBound(2)
     real(R8), pointer  :: dataptr1d(:)
     real(R8), pointer  :: dataptr2d(:,:)
+    real(R8), pointer  :: dataptr3d(:,:,:)
     character(ESMF_MAXSTR), allocatable :: lfieldNameList(:)
     character(len=*), parameter :: subname='(med_methods_FB_init_pointer)'
     ! ----------------------------------------------
@@ -160,7 +168,37 @@ contains
           call ESMF_FieldGet(lfield, rank=lrank, rc=rc)
           if (chkerr(rc,__LINE__,u_FILE_u)) return
 
-          if (lrank == 2) then
+          if (lrank == 3) then
+
+             ! determine ungridded lower and upper bounds for lfield
+             call ESMF_AttributeGet(lfield, name="UngriddedLBound", convention="NUOPC", &
+                  purpose="Instance", itemCount=ungriddedCount,  isPresent=isPresent, rc=rc)
+             if (chkerr(rc,__LINE__,u_FILE_u)) return
+             if (ungriddedCount /= 2) then
+                call shr_log_error(trim(subname)//": ERROR ungriddedCount for "// &
+                     trim(lfieldnamelist(n))//" must be 2 if rank is 3 ", rc=rc)
+                return
+             end if
+
+             ! set ungridded dimensions for field
+             call ESMF_AttributeGet(lfield, name="UngriddedLBound", convention="NUOPC", &
+                  purpose="Instance", valueList=ungriddedLBound, rc=rc)
+             if (chkerr(rc,__LINE__,u_FILE_u)) return
+             call ESMF_AttributeGet(lfield, name="UngriddedUBound", convention="NUOPC", &
+                  purpose="Instance", valueList=ungriddedUBound, rc=rc)
+             if (chkerr(rc,__LINE__,u_FILE_u)) return
+
+             ! get 3d pointer for field
+             call ESMF_FieldGet(lfield, farrayptr=dataptr3d, rc=rc)
+             if (chkerr(rc,__LINE__,u_FILE_u)) return
+
+             ! create new field with two ungridded dimensions
+             newfield = ESMF_FieldCreate(lmesh, dataptr3d, ESMF_INDEX_DELOCAL, &
+                  meshloc=meshloc, name=lfieldNameList(n), &
+                  ungriddedLbound=ungriddedLbound, ungriddedUbound=ungriddedUbound, gridToFieldMap=(/3/), rc=rc)
+             if (chkerr(rc,__LINE__,u_FILE_u)) return
+
+          else if (lrank == 2) then
 
              ! determine ungridded lower and upper bounds for lfield
              call ESMF_AttributeGet(lfield, name="UngriddedLBound", convention="NUOPC", &
@@ -174,10 +212,10 @@ contains
 
              ! set ungridded dimensions for field
              call ESMF_AttributeGet(lfield, name="UngriddedLBound", convention="NUOPC", &
-                  purpose="Instance", valueList=ungriddedLBound, rc=rc)
+                  purpose="Instance", valueList=ungriddedLBound(1:1), rc=rc)
              if (chkerr(rc,__LINE__,u_FILE_u)) return
              call ESMF_AttributeGet(lfield, name="UngriddedUBound", convention="NUOPC", &
-                  purpose="Instance", valueList=ungriddedUBound, rc=rc)
+                  purpose="Instance", valueList=ungriddedUBound(1:1), rc=rc)
              if (chkerr(rc,__LINE__,u_FILE_u)) return
 
              ! get 2d pointer for field
@@ -187,7 +225,7 @@ contains
              ! create new field with an ungridded dimension
              newfield = ESMF_FieldCreate(lmesh, dataptr2d, ESMF_INDEX_DELOCAL, &
                   meshloc=meshloc, name=lfieldNameList(n), &
-                  ungriddedLbound=ungriddedLbound, ungriddedUbound=ungriddedUbound, gridToFieldMap=(/2/), rc=rc)
+                  ungriddedLbound=ungriddedLbound(1:1), ungriddedUbound=ungriddedUbound(1:1), gridToFieldMap=(/2/), rc=rc)
              if (chkerr(rc,__LINE__,u_FILE_u)) return
 
           else if (lrank == 1) then
@@ -202,7 +240,7 @@ contains
              if (chkerr(rc,__LINE__,u_FILE_u)) return
 
           else
-             call shr_log_error(trim(subname)//": ERROR only rank1 and rank2 are supported for rank of fields ", rc=rc)
+             call shr_log_error(trim(subname)//": ERROR only rank1, rank2, and rank3 are supported for rank of fields ", rc=rc)
              return
           end if
 
@@ -223,42 +261,37 @@ contains
 
   !-----------------------------------------------------------------------------
 
-  subroutine med_methods_FB_init(FBout, flds_scalar_name, fieldNameList, FBgeom, STgeom, FBflds, STflds, name, rc)
+  subroutine med_methods_FB_init(FBout, flds_scalar_name, field_info_array, FBgeom, STgeom, name, rc)
 
     ! ----------------------------------------------
-    ! Create FBout from fieldNameList, FBflds, STflds, FBgeom or STgeom in that order or priority
-    ! Pass in FBgeom OR STgeom, get mesh from that object
+    ! Create FBout from field_info_array (see med_field_info_mod for some convenience
+    ! functions for creating a field_info array from field names or an ESMF State)
+    !
+    ! Mesh is retrieved from either FBgeom or STgeom (one of those must be present, but
+    ! not both)
     ! ----------------------------------------------
 
     use ESMF , only : ESMF_Field, ESMF_FieldBundle, ESMF_FieldBundleCreate, ESMF_FieldBundleGet
     use ESMF , only : ESMF_State, ESMF_Mesh, ESMF_StaggerLoc, ESMF_MeshLoc
     use ESMF , only : ESMF_StateGet, ESMF_FieldGet, ESMF_FieldBundleAdd, ESMF_FieldCreate
-    use ESMF , only : ESMF_TYPEKIND_R8, ESMF_FIELDSTATUS_EMPTY, ESMF_AttributeGet
+    use ESMF , only : ESMF_FIELDSTATUS_EMPTY, ESMF_AttributeGet
 
     ! input/output variables
     type(ESMF_FieldBundle), intent(inout)        :: FBout            ! output field bundle
     character(len=*)      , intent(in)           :: flds_scalar_name ! name of scalar fields
-    character(len=*)      , intent(in), optional :: fieldNameList(:) ! names of fields to use in output field bundle
+    type(med_field_info_type), intent(in)        :: field_info_array(:) ! info on the fields to put in the output FieldBundle
     type(ESMF_FieldBundle), intent(in), optional :: FBgeom           ! input field bundle geometry to use
     type(ESMF_State)      , intent(in), optional :: STgeom           ! input state geometry to use
-    type(ESMF_FieldBundle), intent(in), optional :: FBflds           ! input field bundle fields
-    type(ESMF_State)      , intent(in), optional :: STflds           ! input state fields
     character(len=*)      , intent(in), optional :: name             ! name to use for output field bundle
     integer               , intent(out)          :: rc
 
     ! local variables
-    integer                :: n,n1
+    integer                :: n
     integer                :: fieldCount,fieldCountgeom
     character(ESMF_MAXSTR) :: lname
     type(ESMF_Field)       :: field,lfield
     type(ESMF_Mesh)        :: lmesh
     type(ESMF_MeshLoc)     :: meshloc
-    integer                :: ungriddedCount
-    integer                :: ungriddedCount_in
-    integer, allocatable   :: ungriddedLBound(:)
-    integer, allocatable   :: ungriddedUBound(:)
-    logical                :: isPresent
-    character(ESMF_MAXSTR), allocatable :: lfieldNameList(:)
     character(len=*), parameter :: subname='(med_methods_FB_init)'
     ! ----------------------------------------------
 
@@ -277,11 +310,6 @@ contains
     ! check argument consistency and
     ! verify that geom argument has a field
     !---------------------------------
-
-    if (present(fieldNameList) .and. present(FBflds) .and. present(STflds)) then
-       call shr_log_error(trim(subname)//": ERROR only fieldNameList, FBflds, or STflds can be an argument", rc=rc)
-       return
-    endif
 
     if (present(FBgeom) .and. present(STgeom)) then
        call shr_log_error(trim(subname)//": ERROR FBgeom and STgeom cannot both be arguments", rc=rc)
@@ -305,70 +333,12 @@ contains
     endif
 
     !---------------------------------
-    ! determine the names of fields that will be in FBout
+    ! Determine number of fields
+    !
+    ! Note that scalars and blank fields will be removed later
     !---------------------------------
 
-    if (present(fieldNameList)) then
-      fieldcount = size(fieldNameList)
-      allocate(lfieldNameList(fieldcount))
-      lfieldNameList = fieldNameList
-      if (dbug_flag > 5) then
-         call ESMF_LogWrite(trim(subname)//":"//trim(lname)//" fieldNameList from argument", ESMF_LOGMSG_INFO)
-      end if
-    elseif (present(FBflds)) then
-      call ESMF_FieldBundleGet(FBflds, fieldCount=fieldCount, rc=rc)
-      if (chkerr(rc,__LINE__,u_FILE_u)) return
-      allocate(lfieldNameList(fieldCount))
-      call ESMF_FieldBundleGet(FBflds, fieldNameList=lfieldNameList, rc=rc)
-      if (chkerr(rc,__LINE__,u_FILE_u)) return
-      if (dbug_flag > 5) then
-         call ESMF_LogWrite(trim(subname)//":"//trim(lname)//" fieldNameList from FBflds", ESMF_LOGMSG_INFO)
-      end if
-    elseif (present(STflds)) then
-      call ESMF_StateGet(STflds, itemCount=fieldCount, rc=rc)
-      if (chkerr(rc,__LINE__,u_FILE_u)) return
-      allocate(lfieldNameList(fieldCount))
-      call ESMF_StateGet(STflds, itemNameList=lfieldNameList, rc=rc)
-      if (chkerr(rc,__LINE__,u_FILE_u)) return
-      if (dbug_flag > 5) then
-         call ESMF_LogWrite(trim(subname)//":"//trim(lname)//" fieldNameList from STflds", ESMF_LOGMSG_INFO)
-      end if
-    elseif (present(FBgeom)) then
-      call ESMF_FieldBundleGet(FBgeom, fieldCount=fieldCount, rc=rc)
-      if (chkerr(rc,__LINE__,u_FILE_u)) return
-      allocate(lfieldNameList(fieldCount))
-      call ESMF_FieldBundleGet(FBgeom, fieldNameList=lfieldNameList, rc=rc)
-      if (chkerr(rc,__LINE__,u_FILE_u)) return
-      if (dbug_flag > 5) then
-         call ESMF_LogWrite(trim(subname)//":"//trim(lname)//" fieldNameList from FBgeom", ESMF_LOGMSG_INFO)
-      end if
-    elseif (present(STgeom)) then
-      call ESMF_StateGet(STgeom, itemCount=fieldCount, rc=rc)
-      if (chkerr(rc,__LINE__,u_FILE_u)) return
-      allocate(lfieldNameList(fieldCount))
-      call ESMF_StateGet(STgeom, itemNameList=lfieldNameList, rc=rc)
-      if (chkerr(rc,__LINE__,u_FILE_u)) return
-      if (dbug_flag > 5) then
-         call ESMF_LogWrite(trim(subname)//":"//trim(lname)//" fieldNameList from STgeom", ESMF_LOGMSG_INFO)
-      end if
-    else
-       call shr_log_error(trim(subname)//": ERROR fieldNameList, FBflds, STflds, FBgeom, or STgeom must be passed", rc=rc)
-       return
-    endif
-
-    !---------------------------------
-    ! remove scalar field and blank fields from field bundle
-    !---------------------------------
-
-    do n = 1, fieldCount
-      if (trim(lfieldnamelist(n)) == trim(flds_scalar_name) .or. &
-          trim(lfieldnamelist(n)) == '') then
-        do n1 = n, fieldCount-1
-           lfieldnamelist(n1) = lfieldnamelist(n1+1)
-        enddo
-        fieldCount = fieldCount - 1
-      endif
-    enddo  ! n
+    fieldCount = size(field_info_array)
 
     !---------------------------------
     ! create the mesh(lmesh) that will be used for FBout fields
@@ -426,61 +396,19 @@ contains
        ! Now loop over all the fields in the field name list
        do n = 1, fieldCount
 
-          ! Note that input fields come from ONE of FBFlds, STflds, or fieldNamelist input argument
-          if (present(FBFlds) .or. present(STflds)) then
-
-             ! ungridded dimensions might be present in the input states or field bundles
-             if (present(FBflds)) then
-                call ESMF_FieldBundleGet(FBflds, fieldName=lfieldnamelist(n), field=lfield, rc=rc)
-                if (chkerr(rc,__LINE__,u_FILE_u)) return
-             elseif (present(STflds)) then
-                call ESMF_StateGet(STflds, itemName=trim(lfieldnamelist(n)), field=lfield, rc=rc)
-                if (chkerr(rc,__LINE__,u_FILE_u)) return
-             end if
-
-             ! Determine ungridded lower and upper bounds for lfield
-             call ESMF_AttributeGet(lfield, name="UngriddedUBound", convention="NUOPC", &
-                  purpose="Instance", itemCount=ungriddedCount_in,  isPresent=isPresent, rc=rc)
-             if (chkerr(rc,__LINE__,u_FILE_u)) return
-             if (isPresent) then
-                ungriddedCount = ungriddedCount_in
-             else
-                ungriddedCount=0  ! initialize in case it was not set
-             end if
-
-             ! Create the field on a lmesh
-             if (ungriddedCount > 0) then
-                ! ungridded dimensions in field
-                allocate(ungriddedLBound(ungriddedCount), ungriddedUBound(ungriddedCount))
-                call ESMF_AttributeGet(lfield, name="UngriddedLBound", convention="NUOPC", &
-                     purpose="Instance", valueList=ungriddedLBound, rc=rc)
-                if (chkerr(rc,__LINE__,u_FILE_u)) return
-                call ESMF_AttributeGet(lfield, name="UngriddedUBound", convention="NUOPC", &
-                     purpose="Instance", valueList=ungriddedUBound, rc=rc)
-                if (chkerr(rc,__LINE__,u_FILE_u)) return
-
-                field = ESMF_FieldCreate(lmesh, ESMF_TYPEKIND_R8, meshloc=meshloc, name=lfieldNameList(n), &
-                     ungriddedLbound=ungriddedLbound, ungriddedUbound=ungriddedUbound, gridToFieldMap=(/2/))
-                if (chkerr(rc,__LINE__,u_FILE_u)) return
-
-                deallocate( ungriddedLbound, ungriddedUbound)
-             else
-                ! No ungridded dimensions in field
-                field = ESMF_FieldCreate(lmesh, ESMF_TYPEKIND_R8, meshloc=meshloc, name=lfieldNameList(n), rc=rc)
-                if (chkerr(rc,__LINE__,u_FILE_u)) return
-             end if
-
-          else if (present(fieldNameList)) then
-
-             ! Assume no ungridded dimensions if just the field name list is give
-             field = ESMF_FieldCreate(lmesh, ESMF_TYPEKIND_R8, meshloc=meshloc, name=lfieldNameList(n), rc=rc)
-             if (chkerr(rc,__LINE__,u_FILE_u)) return
-
+          ! Don't add scalar field or blank fields to field bundle
+          if (field_info_array(n)%name == flds_scalar_name .or. &
+              len_trim(field_info_array(n)%name) == 0) then
+             cycle
           end if
 
-          ! Add the created field bundle FBout
+          ! Create the field
+          call med_field_info_esmf_fieldcreate(field_info_array(n), lmesh, meshloc, field, rc)
+          if (chkerr(rc,__LINE__,u_FILE_u)) return
+
+          ! Add the created field to field bundle FBout
           if (dbug_flag > 1) then
-             call ESMF_LogWrite(trim(subname)//":"//trim(lname)//" adding field "//trim(lfieldNameList(n)), &
+             call ESMF_LogWrite(trim(subname)//":"//trim(lname)//" adding field "//trim(field_info_array(n)%name), &
                   ESMF_LOGMSG_INFO)
           end if
           call ESMF_FieldBundleAdd(FBout, (/field/), rc=rc)
@@ -488,8 +416,6 @@ contains
 
        enddo  ! fieldCount
     endif  ! fieldcountgeom
-
-    deallocate(lfieldNameList)
 
     call med_methods_FB_reset(FBout, value=spval_init, rc=rc)
     if (chkerr(rc,__LINE__,u_FILE_u)) return
@@ -707,6 +633,7 @@ contains
     integer                         :: lrank
     real(R8), pointer               :: fldptr1(:)
     real(R8), pointer               :: fldptr2(:,:)
+    real(R8), pointer               :: fldptr3(:,:,:)
     character(len=*),parameter      :: subname='(med_methods_FB_reset)'
     ! ----------------------------------------------
 
@@ -733,7 +660,7 @@ contains
     do n = 1, fieldCount
        call ESMF_FieldBundleGet(FB, fieldName=trim(lfieldnamelist(n)), field=lfield, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
-       call med_methods_Field_GetFldPtr(lfield, fldptr1=fldptr1, fldptr2=fldptr2, rank=lrank, rc=rc)
+       call med_methods_Field_GetFldPtr(lfield, fldptr1=fldptr1, fldptr2=fldptr2, fldptr3=fldptr3, rank=lrank, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
 
        if (lrank == 0) then
@@ -742,6 +669,8 @@ contains
           fldptr1 = lvalue
        elseif (lrank == 2) then
           fldptr2 = lvalue
+       elseif (lrank == 3) then
+          fldptr3 = lvalue
        else
           call shr_log_error(trim(subname)//": ERROR in rank "//trim(lfieldnamelist(n)), &
                line=__LINE__, file=u_FILE_u, rc=rc)
@@ -784,6 +713,7 @@ contains
     integer                         :: lrank
     real(R8), pointer               :: fldptr1(:)
     real(R8), pointer               :: fldptr2(:,:)
+    real(R8), pointer               :: fldptr3(:,:,:)
     character(len=*),parameter      :: subname='(med_methods_State_reset)'
     ! ----------------------------------------------
 
@@ -805,7 +735,7 @@ contains
     do n = 1, fieldCount
        call ESMF_StateGet(State, itemName=trim(lfieldnamelist(n)), field=lfield, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
-       call med_methods_Field_GetFldPtr(lfield, fldptr1=fldptr1, fldptr2=fldptr2, rank=lrank, rc=rc)
+       call med_methods_Field_GetFldPtr(lfield, fldptr1=fldptr1, fldptr2=fldptr2, fldptr3=fldptr3, rank=lrank, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
        if (lrank == 0) then
           ! no local data
@@ -813,6 +743,8 @@ contains
           fldptr1 = lvalue
        elseif (lrank == 2) then
           fldptr2 = lvalue
+       elseif (lrank == 3) then
+          fldptr3 = lvalue
        else
           call shr_log_error(trim(subname)//": ERROR in rank "//trim(lfieldnamelist(n)), &
                line=__LINE__, file=u_FILE_u, rc=rc)
@@ -832,7 +764,8 @@ contains
   subroutine med_methods_FB_average(FB, count, rc)
 
     ! ----------------------------------------------
-    ! Set all fields to zero in FB
+    ! Divide all fields in FB by count
+    ! If count is 0, nothing is done
     ! ----------------------------------------------
 
     use ESMF, only : ESMF_FieldBundle, ESMF_FieldBundleGet, ESMF_Field
@@ -843,11 +776,12 @@ contains
     integer               , intent(out)   :: rc
 
     ! local variables
-    integer                         :: i,j,n
+    integer                         :: i,j,k,n
     integer                         :: fieldCount, lrank
     character(ESMF_MAXSTR) ,pointer :: lfieldnamelist(:)
     real(R8), pointer               :: dataPtr1(:)
     real(R8), pointer               :: dataPtr2(:,:)
+    real(R8), pointer               :: dataPtr3(:,:,:)
     type(ESMF_Field)                :: lfield
     character(len=*),parameter      :: subname='(med_methods_FB_average)'
     ! ----------------------------------------------
@@ -876,7 +810,7 @@ contains
       do n = 1, fieldCount
          call ESMF_FieldBundleGet(FB, fieldName=trim(lfieldnamelist(n)), field=lfield, rc=rc)
          if (chkerr(rc,__LINE__,u_FILE_u)) return
-         call med_methods_Field_GetFldPtr(lfield, fldptr1=dataptr1, fldptr2=dataptr2, rank=lrank, rc=rc)
+         call med_methods_Field_GetFldPtr(lfield, fldptr1=dataptr1, fldptr2=dataptr2, fldptr3=dataptr3, rank=lrank, rc=rc)
          if (chkerr(rc,__LINE__,u_FILE_u)) return
 
         if (lrank == 0) then
@@ -889,6 +823,14 @@ contains
           do j=lbound(dataptr2,2),ubound(dataptr2,2)
           do i=lbound(dataptr2,1),ubound(dataptr2,1)
             dataptr2(i,j) = dataptr2(i,j) / real(count, R8)
+          enddo
+          enddo
+        elseif (lrank == 3) then
+          do k=lbound(dataptr3,3),ubound(dataptr3,3)
+          do j=lbound(dataptr3,2),ubound(dataptr3,2)
+          do i=lbound(dataptr3,1),ubound(dataptr3,1)
+            dataptr3(i,j,k) = dataptr3(i,j,k) / real(count, R8)
+          enddo
           enddo
           enddo
         else
@@ -926,6 +868,7 @@ contains
     character(len=CL)               :: lstring
     real(R8), pointer               :: dataPtr1d(:)
     real(R8), pointer               :: dataPtr2d(:,:)
+    real(R8), pointer               :: dataPtr3d(:,:,:)
     type(ESMF_Field)                :: lfield
     character(len=*), parameter     :: subname='(med_methods_FB_diagnose)'
     ! ----------------------------------------------
@@ -951,7 +894,7 @@ contains
     do n = 1, fieldCount
        call ESMF_FieldBundleGet(FB, fieldName=trim(lfieldnamelist(n)), field=lfield, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
-       call med_methods_Field_GetFldPtr(lfield, fldptr1=dataptr1d, fldptr2=dataptr2d, rank=lrank, rc=rc)
+       call med_methods_Field_GetFldPtr(lfield, fldptr1=dataptr1d, fldptr2=dataptr2d, fldptr3=dataptr3d, rank=lrank, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
 
        if (lrank == 0) then
@@ -969,6 +912,15 @@ contains
           if (size(dataPtr2d) > 0) then
              write(msgString,'(A,3g14.7,i8)') trim(subname)//' '//trim(lstring)//': '//trim(lfieldnamelist(n))//' ', &
                   minval(dataPtr2d), maxval(dataPtr2d), sum(dataPtr2d), size(dataPtr2d)
+          else
+             write(msgString,'(A,a)') trim(subname)//' '//trim(lstring)//': '//trim(lfieldnamelist(n)), &
+                  " no data"
+          endif
+
+       elseif (lrank == 3) then
+          if (size(dataPtr3d) > 0) then
+             write(msgString,'(A,3g14.7,i8)') trim(subname)//' '//trim(lstring)//': '//trim(lfieldnamelist(n))//' ', &
+                  minval(dataPtr3d), maxval(dataPtr3d), sum(dataPtr3d), size(dataPtr3d)
           else
              write(msgString,'(A,a)') trim(subname)//' '//trim(lstring)//': '//trim(lfieldnamelist(n)), &
                   " no data"
@@ -1124,6 +1076,7 @@ contains
     character(len=CS)               :: lstring
     real(R8), pointer               :: dataPtr1d(:)
     real(R8), pointer               :: dataPtr2d(:,:)
+    real(R8), pointer               :: dataPtr3d(:,:,:)
     type(ESMF_Field)                :: lfield
     character(len=*),parameter      :: subname='(med_methods_State_diagnose)'
     ! ----------------------------------------------
@@ -1145,7 +1098,7 @@ contains
     do n = 1, fieldCount
        call ESMF_StateGet(State, itemName=trim(lfieldnamelist(n)), field=lfield, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
-       call med_methods_Field_GetFldPtr(lfield, fldptr1=dataptr1d, fldptr2=dataptr2d, rank=lrank, rc=rc)
+       call med_methods_Field_GetFldPtr(lfield, fldptr1=dataptr1d, fldptr2=dataptr2d, fldptr3=dataptr3d, rank=lrank, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
 
        if (lrank == 0) then
@@ -1162,6 +1115,14 @@ contains
           if (size(dataPtr2d) > 0) then
              write(msgString,'(A,3g14.7,i8)') trim(subname)//' '//trim(lstring)//': '//trim(lfieldnamelist(n)), &
                   minval(dataPtr2d), maxval(dataPtr2d), sum(dataPtr2d), size(dataPtr2d)
+          else
+             write(msgString,'(A,a)') trim(subname)//' '//trim(lstring)//': '//trim(lfieldnamelist(n)), &
+                  " no data"
+          endif
+       elseif (lrank == 3) then
+          if (size(dataPtr3d) > 0) then
+             write(msgString,'(A,3g14.7,i8)') trim(subname)//' '//trim(lstring)//': '//trim(lfieldnamelist(n)), &
+                  minval(dataPtr3d), maxval(dataPtr3d), sum(dataPtr3d), size(dataPtr3d)
           else
              write(msgString,'(A,a)') trim(subname)//' '//trim(lstring)//': '//trim(lfieldnamelist(n)), &
                   " no data"
@@ -1201,10 +1162,12 @@ contains
 
     ! local variables
     character(len=CS) :: lstring
+    character(len=CL) :: msg
     real(R8), pointer :: dataPtr1d(:)
     real(R8), pointer :: dataPtr2d(:,:)
+    real(R8), pointer :: dataPtr3d(:,:,:)
     type(ESMF_Field)  :: lfield
-    integer           :: ungriddedUBound(1)     ! currently the size must equal 1 for rank 2 fields
+    integer           :: fieldrank
     character(len=*),parameter :: subname='(med_methods_FB_Field_diagnose)'
     ! ----------------------------------------------
 
@@ -1220,9 +1183,18 @@ contains
 
     call ESMF_FieldBundleGet(FB, fieldName=fieldname, field=lfield, rc=rc)
     if (chkerr(rc,__LINE__,u_FILE_u)) return
-    call ESMF_FieldGet(lfield, ungriddedUBound=ungriddedUBound, rc=rc)
+    call ESMF_FieldGet(lfield, rank=fieldrank, rc=rc)
     if (chkerr(rc,__LINE__,u_FILE_u)) return
-    if (ungriddedUBound(1) > 0) then
+    if (fieldrank == 3) then
+       call ESMF_FieldGet(lfield, farrayptr=dataptr3d, rc=rc)
+       if (chkerr(rc,__LINE__,u_FILE_u)) return
+       if (size(dataptr3d) > 0) then
+          write(msgString,'(A,3g14.7,i8)') trim(subname)//' '//trim(lstring)//': '//trim(fieldname), &
+               minval(dataPtr3d), maxval(dataPtr3d), sum(dataPtr3d), size(dataPtr3d)
+       else
+          write(msgString,'(A,a)') trim(subname)//' '//trim(lstring)//': '//trim(fieldname)," no data"
+       endif
+    elseif (fieldrank == 2) then
        call ESMF_FieldGet(lfield, farrayptr=dataptr2d, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
        if (size(dataptr2d) > 0) then
@@ -1231,7 +1203,7 @@ contains
        else
           write(msgString,'(A,a)') trim(subname)//' '//trim(lstring)//': '//trim(fieldname)," no data"
        endif
-    else
+    elseif (fieldrank == 1) then
        call ESMF_FieldGet(lfield, farrayptr=dataptr1d, rc=rc)
        if (chkerr(rc,__LINE__,u_FILE_u)) return
        if (size(dataPtr1d) > 0) then
@@ -1240,6 +1212,11 @@ contains
        else
           write(msgString,'(A,a)') trim(subname)//' '//trim(lstring)//': '//trim(fieldname)," no data"
        endif
+    else
+       write(msg,'(a,i0)') subname//": ERROR: unhandled field rank ", fieldrank
+       call shr_log_error(msg, &
+            line=__LINE__, file=u_FILE_u, rc=rc)
+       return
     end if
     call ESMF_LogWrite(trim(msgString), ESMF_LOGMSG_INFO)
 
@@ -1270,6 +1247,7 @@ contains
     character(len=CS)          :: lstring
     real(R8), pointer          :: dataPtr1d(:)
     real(R8), pointer          :: dataPtr2d(:,:)
+    real(R8), pointer          :: dataPtr3d(:,:,:)
     character(len=*),parameter :: subname='(med_methods_Field_diagnose)'
     ! ----------------------------------------------
 
@@ -1303,6 +1281,15 @@ contains
        if (size(dataPtr2d) > 0) then
           write(msgString,'(A,3g14.7,i8)') trim(subname)//' '//trim(lstring)//': '//trim(fieldname), &
                minval(dataPtr2d), maxval(dataPtr2d), sum(dataPtr2d), size(dataPtr2d)
+       else
+          write(msgString,'(A,a)') trim(subname)//' '//trim(lstring)//': '//trim(fieldname)," no data"
+       endif
+    elseif (lrank == 3) then
+       call ESMF_FieldGet(field, farrayPtr=dataPtr3d, rc=rc)
+       if (chkerr(rc,__LINE__,u_FILE_u)) return
+       if (size(dataPtr3d) > 0) then
+          write(msgString,'(A,3g14.7,i8)') trim(subname)//' '//trim(lstring)//': '//trim(fieldname), &
+               minval(dataPtr3d), maxval(dataPtr3d), sum(dataPtr3d), size(dataPtr3d)
        else
           write(msgString,'(A,a)') trim(subname)//' '//trim(lstring)//': '//trim(fieldname)," no data"
        endif
@@ -1352,7 +1339,9 @@ contains
 
     ! ----------------------------------------------
     ! Accumulate common field names from FBin to FBout
-    ! If copy is passed in and true, the this is a copy
+    !
+    ! If copy is passed in and true, then data is copied from FBin to FBout, overwriting
+    ! values in FBout, rather than accumulating
     ! ----------------------------------------------
 
     use ESMF , only : ESMF_FieldBundle, ESMF_FieldBundleGet, ESMF_Field
@@ -1364,7 +1353,7 @@ contains
     integer               , intent(out)   :: rc
 
     ! local variables
-    integer                         :: i,j,n
+    integer                         :: i,j,k,n
     integer                         :: fieldCount, lranki, lranko
     character(ESMF_MAXSTR) ,pointer :: lfieldnamelist(:)
     logical                         :: exists
@@ -1373,6 +1362,8 @@ contains
     real(R8), pointer               :: dataPtro1(:)
     real(R8), pointer               :: dataPtri2(:,:)
     real(R8), pointer               :: dataPtro2(:,:)
+    real(R8), pointer               :: dataPtri3(:,:,:)
+    real(R8), pointer               :: dataPtro3(:,:,:)
     type(ESMF_Field)                :: lfield
     character(len=*), parameter     :: subname='(med_methods_FB_accum)'
     ! ----------------------------------------------
@@ -1399,12 +1390,12 @@ contains
       if (exists) then
         call ESMF_FieldBundleGet(FBin, fieldName=trim(lfieldnamelist(n)), field=lfield, rc=rc)
         if (chkerr(rc,__LINE__,u_FILE_u)) return
-        call med_methods_Field_GetFldPtr(lfield, fldptr1=dataptri1, fldptr2=dataptri2, rank=lranki, rc=rc)
+        call med_methods_Field_GetFldPtr(lfield, fldptr1=dataptri1, fldptr2=dataptri2, fldptr3=dataptri3, rank=lranki, rc=rc)
         if (chkerr(rc,__LINE__,u_FILE_u)) return
 
         call ESMF_FieldBundleGet(FBout, fieldName=trim(lfieldnamelist(n)), field=lfield, rc=rc)
         if (chkerr(rc,__LINE__,u_FILE_u)) return
-        call med_methods_Field_GetFldPtr(lfield, fldptr1=dataptro1, fldptr2=dataptro2, rank=lranko, rc=rc)
+        call med_methods_Field_GetFldPtr(lfield, fldptr1=dataptro1, fldptr2=dataptro2, fldptr3=dataptro3, rank=lranko, rc=rc)
         if (chkerr(rc,__LINE__,u_FILE_u)) return
 
         if (lranki == 0 .and. lranko == 0) then
@@ -1444,6 +1435,31 @@ contains
             do j=lbound(dataPtri2,2),ubound(dataPtri2,2)
             do i=lbound(dataPtri2,1),ubound(dataPtri2,1)
               dataPtro2(i,j) = dataPtro2(i,j) + dataPtri2(i,j)
+            enddo
+            enddo
+          endif
+
+        elseif (lranki == 3 .and. lranko == 3) then
+
+          if (.not.med_methods_FieldPtr_Compare(dataPtro3, dataPtri3, subname, rc)) then
+             call shr_log_error(trim(subname)//": ERROR in dataPtr3 size ", rc=rc)
+             return
+          endif
+
+          if (lcopy) then
+            do k=lbound(dataPtri3,3),ubound(dataPtri3,3)
+            do j=lbound(dataPtri3,2),ubound(dataPtri3,2)
+            do i=lbound(dataPtri3,1),ubound(dataPtri3,1)
+              dataPtro3(i,j,k) = dataPtri3(i,j,k)
+            enddo
+            enddo
+            enddo
+          else
+            do k=lbound(dataPtri3,3),ubound(dataPtri3,3)
+            do j=lbound(dataPtri3,2),ubound(dataPtri3,2)
+            do i=lbound(dataPtri3,1),ubound(dataPtri3,1)
+              dataPtro3(i,j,k) = dataPtro3(i,j,k) + dataPtri3(i,j,k)
+            enddo
             enddo
             enddo
           endif
@@ -1516,12 +1532,12 @@ contains
 
   !-----------------------------------------------------------------------------
 
-  subroutine med_methods_Field_GetFldPtr(field, fldptr1, fldptr2, rank, abort, rc)
+  subroutine med_methods_Field_GetFldPtr(field, fldptr1, fldptr2, fldptr3, rank, abort, rc)
 
     ! ----------------------------------------------
-    ! for a field, determine rank and return fldptr1 or fldptr2
+    ! for a field, determine rank and return fldptr1, fldptr2, or fldptr3
     ! abort is true by default and will abort if fldptr is not yet allocated in field
-    ! rank returns 0, 1, or 2.  0 means fldptr not allocated and abort=false
+    ! rank returns 0, 1, 2, or 3.  0 means fldptr not allocated and abort=false
     ! ----------------------------------------------
 
     use ESMF , only : ESMF_Field,ESMF_Mesh, ESMF_FieldGet, ESMF_MeshGet
@@ -1532,6 +1548,7 @@ contains
     type(ESMF_Field)  , intent(in)              :: field
     real(R8), pointer , intent(inout), optional :: fldptr1(:)
     real(R8), pointer , intent(inout), optional :: fldptr2(:,:)
+    real(R8), pointer , intent(inout), optional :: fldptr3(:,:,:)
     integer           , intent(out)  , optional :: rank
     logical           , intent(in)   , optional :: abort
     integer           , intent(out)  , optional :: rc
@@ -1616,6 +1633,15 @@ contains
         call ESMF_FieldGet(field, farrayPtr=fldptr2, rc=rc)
         if (chkerr(rc,__LINE__,u_FILE_u)) return
 
+      elseif (lrank == 3) then
+        if (.not.present(fldptr3)) then
+           call shr_log_error(trim(subname)//": ERROR missing rank=3 array ", &
+                line=__LINE__, file=u_FILE_u, rc=rc)
+           return
+        endif
+        call ESMF_FieldGet(field, farrayPtr=fldptr3, rc=rc)
+        if (chkerr(rc,__LINE__,u_FILE_u)) return
+
       else
          call shr_log_error(trim(subname)//": ERROR in rank ", &
               line=__LINE__, file=u_FILE_u, rc=rc)
@@ -1636,7 +1662,7 @@ contains
 
   !-----------------------------------------------------------------------------
 
-  subroutine med_methods_FB_GetFldPtr(FB, fldname, fldptr1, fldptr2, rank, field, rc)
+  subroutine med_methods_FB_GetFldPtr(FB, fldname, fldptr1, fldptr2, fldptr3, rank, field, rc)
 
     use ESMF , only : ESMF_FieldBundle, ESMF_FieldBundleGet, ESMF_Field
 
@@ -1648,6 +1674,7 @@ contains
     character(len=*)       , intent(in)              :: fldname
     real(R8), pointer      , intent(inout), optional :: fldptr1(:)
     real(R8), pointer      , intent(inout), optional :: fldptr2(:,:)
+    real(R8), pointer      , intent(inout), optional :: fldptr3(:,:,:)
     integer                , intent(out),   optional :: rank
     integer                , intent(out),   optional :: rc
     type(ESMF_Field)       , intent(out),   optional :: field
@@ -1678,7 +1705,7 @@ contains
 
     call ESMF_FieldBundleGet(FB, fieldName=trim(fldname), field=lfield, rc=rc)
     if (chkerr(rc,__LINE__,u_FILE_u)) return
-    call med_methods_Field_GetFldPtr(lfield, fldptr1=fldptr1, fldptr2=fldptr2, rank=lrank, rc=rc)
+    call med_methods_Field_GetFldPtr(lfield, fldptr1=fldptr1, fldptr2=fldptr2, fldptr3=fldptr3, rank=lrank, rc=rc)
     if (chkerr(rc,__LINE__,u_FILE_u)) return
 
     if (present(rank)) then
@@ -1763,6 +1790,43 @@ contains
     endif
 
   end function med_methods_FieldPtr_Compare2
+
+  !-----------------------------------------------------------------------------
+
+  logical function med_methods_FieldPtr_Compare3(fldptr1, fldptr2, cstring, rc)
+
+    ! input/output variables
+    real(R8), pointer , intent(in)  :: fldptr1(:,:,:)
+    real(R8), pointer , intent(in)  :: fldptr2(:,:,:)
+    character(len=*)  , intent(in)  :: cstring
+    integer           , intent(out) :: rc
+
+    ! local variables
+    character(len=*), parameter :: subname='(med_methods_FieldPtr_Compare3)'
+    ! ----------------------------------------------
+
+    if (dbug_flag > 10) then
+      call ESMF_LogWrite(trim(subname)//": called", ESMF_LOGMSG_INFO)
+    endif
+    rc = ESMF_SUCCESS
+
+    med_methods_FieldPtr_Compare3 = .false.
+    if (lbound(fldptr2,3) /= lbound(fldptr1,3) .or. lbound(fldptr2,2) /= lbound(fldptr1,2) .or. &
+        lbound(fldptr2,1) /= lbound(fldptr1,1) .or. ubound(fldptr2,3) /= ubound(fldptr1,3) .or. &
+        ubound(fldptr2,2) /= ubound(fldptr1,2) .or. ubound(fldptr2,1) /= ubound(fldptr1,1)) then
+      write(msgString,*) trim(subname)//': fldptr2 ',lbound(fldptr2),ubound(fldptr2),': fldptr1 ',lbound(fldptr1),ubound(fldptr1),&
+           ": ERROR in data size "//trim(cstring)
+      call shr_log_error(trim(msgString),rc=rc)
+      return
+    else
+      med_methods_FieldPtr_Compare3 = .true.
+    endif
+
+    if (dbug_flag > 10) then
+      call ESMF_LogWrite(trim(subname)//": done", ESMF_LOGMSG_INFO)
+    endif
+
+  end function med_methods_FieldPtr_Compare3
 
   !-----------------------------------------------------------------------------
 
@@ -1864,6 +1928,7 @@ contains
     integer                  :: lrank
     real(R8), pointer        :: dataPtr1(:)
     real(R8), pointer        :: dataPtr2(:,:)
+    real(R8), pointer        :: dataPtr3(:,:,:)
     type(ESMF_GeomType_Flag) :: geomtype
     character(len=*),parameter  :: subname='(med_methods_Field_GeomPrint)'
     ! ----------------------------------------------
@@ -1896,7 +1961,7 @@ contains
     endif
 
     call med_methods_Field_GetFldPtr(field, &
-         fldptr1=dataPtr1, fldptr2=dataPtr2, rank=lrank, abort=.false., rc=rc)
+         fldptr1=dataPtr1, fldptr2=dataPtr2, fldptr3=dataPtr3, rank=lrank, abort=.false., rc=rc)
     if (chkerr(rc,__LINE__,u_FILE_u)) return
 
     if (lrank == 0) then
@@ -1908,6 +1973,13 @@ contains
       write (msgString,*) trim(subname)//":"//trim(string)//": dataptr bounds dim=1 ",lbound(dataptr2,1),ubound(dataptr2,1)
       call ESMF_LogWrite(msgString, ESMF_LOGMSG_INFO)
       write (msgString,*) trim(subname)//":"//trim(string)//": dataptr bounds dim=2 ",lbound(dataptr2,2),ubound(dataptr2,2)
+      call ESMF_LogWrite(msgString, ESMF_LOGMSG_INFO)
+    elseif (lrank == 3) then
+      write (msgString,*) trim(subname)//":"//trim(string)//": dataptr bounds dim=1 ",lbound(dataptr3,1),ubound(dataptr3,1)
+      call ESMF_LogWrite(msgString, ESMF_LOGMSG_INFO)
+      write (msgString,*) trim(subname)//":"//trim(string)//": dataptr bounds dim=2 ",lbound(dataptr3,2),ubound(dataptr3,2)
+      call ESMF_LogWrite(msgString, ESMF_LOGMSG_INFO)
+      write (msgString,*) trim(subname)//":"//trim(string)//": dataptr bounds dim=3 ",lbound(dataptr3,3),ubound(dataptr3,3)
       call ESMF_LogWrite(msgString, ESMF_LOGMSG_INFO)
     elseif (lrank == 0) then
       ! means data allocation does not exist yet
@@ -2431,29 +2503,6 @@ contains
   end subroutine med_methods_FB_getNumFlds
 
   !-----------------------------------------------------------------------------
-  subroutine med_methods_FB_getdata2d(FB, fieldname, dataptr2d, rc)
-
-    use ESMF, only : ESMF_FieldBundle, ESMF_FieldBundleGet, ESMF_Field, ESMF_FieldGet
-
-    ! input/output variables
-    type(ESMF_FieldBundle) , intent(in)    :: FB
-    character(len=*)       , intent(in)    :: fieldname
-    real(r8)               , pointer       :: dataptr2d(:,:)
-    integer                , intent(inout) :: rc
-
-    ! local variables
-    type(ESMF_Field) :: lfield
-    ! ----------------------------------------------
-    rc = ESMF_SUCCESS
-
-    call ESMF_FieldBundleGet(FB, fieldname=trim(fieldname), field=lfield, rc=rc)
-    if (chkerr(rc,__LINE__,u_FILE_u)) return
-    call ESMF_FieldGet(lfield, farrayptr=dataptr2d, rc=rc)
-    if (chkerr(rc,__LINE__,u_FILE_u)) return
-
-  end subroutine med_methods_FB_getdata2d
-
-  !-----------------------------------------------------------------------------
   subroutine med_methods_FB_getdata1d(FB, fieldname, dataptr1d, rc)
 
     use ESMF, only : ESMF_FieldBundle, ESMF_FieldBundleGet, ESMF_Field, ESMF_FieldGet
@@ -2477,21 +2526,50 @@ contains
   end subroutine med_methods_FB_getdata1d
 
   !-----------------------------------------------------------------------------
-  subroutine med_methods_Field_getdata2d(field, dataptr2d, rc)
+  subroutine med_methods_FB_getdata2d(FB, fieldname, dataptr2d, rc)
 
-    use ESMF, only : ESMF_Field, ESMF_FieldGet
+    use ESMF, only : ESMF_FieldBundle, ESMF_FieldBundleGet, ESMF_Field, ESMF_FieldGet
 
     ! input/output variables
-    type(ESMF_Field) , intent(in)    :: field
-    real(r8)         , pointer       :: dataptr2d(:,:)
-    integer          , intent(inout) :: rc
+    type(ESMF_FieldBundle) , intent(in)    :: FB
+    character(len=*)       , intent(in)    :: fieldname
+    real(r8)               , pointer       :: dataptr2d(:,:)
+    integer                , intent(inout) :: rc
+
+    ! local variables
+    type(ESMF_Field) :: lfield
     ! ----------------------------------------------
     rc = ESMF_SUCCESS
 
-    call ESMF_FieldGet(field, farrayptr=dataptr2d, rc=rc)
+    call ESMF_FieldBundleGet(FB, fieldname=trim(fieldname), field=lfield, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
+    call ESMF_FieldGet(lfield, farrayptr=dataptr2d, rc=rc)
     if (chkerr(rc,__LINE__,u_FILE_u)) return
 
-  end subroutine med_methods_Field_getdata2d
+  end subroutine med_methods_FB_getdata2d
+
+  !-----------------------------------------------------------------------------
+  subroutine med_methods_FB_getdata3d(FB, fieldname, dataptr3d, rc)
+
+    use ESMF, only : ESMF_FieldBundle, ESMF_FieldBundleGet, ESMF_Field, ESMF_FieldGet
+
+    ! input/output variables
+    type(ESMF_FieldBundle) , intent(in)    :: FB
+    character(len=*)       , intent(in)    :: fieldname
+    real(r8)               , pointer       :: dataptr3d(:,:,:)
+    integer                , intent(inout) :: rc
+
+    ! local variables
+    type(ESMF_Field) :: lfield
+    ! ----------------------------------------------
+    rc = ESMF_SUCCESS
+
+    call ESMF_FieldBundleGet(FB, fieldname=trim(fieldname), field=lfield, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
+    call ESMF_FieldGet(lfield, farrayptr=dataptr3d, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
+
+  end subroutine med_methods_FB_getdata3d
 
   !-----------------------------------------------------------------------------
   subroutine med_methods_Field_getdata1d(field, dataptr1d, rc)
@@ -2509,6 +2587,40 @@ contains
     if (chkerr(rc,__LINE__,u_FILE_u)) return
 
   end subroutine med_methods_Field_getdata1d
+
+  !-----------------------------------------------------------------------------
+  subroutine med_methods_Field_getdata2d(field, dataptr2d, rc)
+
+    use ESMF, only : ESMF_Field, ESMF_FieldGet
+
+    ! input/output variables
+    type(ESMF_Field) , intent(in)    :: field
+    real(r8)         , pointer       :: dataptr2d(:,:)
+    integer          , intent(inout) :: rc
+    ! ----------------------------------------------
+    rc = ESMF_SUCCESS
+
+    call ESMF_FieldGet(field, farrayptr=dataptr2d, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
+
+  end subroutine med_methods_Field_getdata2d
+
+  !-----------------------------------------------------------------------------
+  subroutine med_methods_Field_getdata3d(field, dataptr3d, rc)
+
+    use ESMF, only : ESMF_Field, ESMF_FieldGet
+
+    ! input/output variables
+    type(ESMF_Field) , intent(in)    :: field
+    real(r8)         , pointer       :: dataptr3d(:,:,:)
+    integer          , intent(inout) :: rc
+    ! ----------------------------------------------
+    rc = ESMF_SUCCESS
+
+    call ESMF_FieldGet(field, farrayptr=dataptr3d, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
+
+  end subroutine med_methods_Field_getdata3d
 
   !-----------------------------------------------------------------------------
   subroutine med_methods_FB_getmesh(FB, mesh, rc)
@@ -2554,9 +2666,11 @@ contains
     character(len=CL)           :: fieldname
     real(r8) , pointer          :: dataptr1d(:)
     real(r8) , pointer          :: dataptr2d(:,:)
+    real(r8) , pointer          :: dataptr3d(:,:,:)
     integer                     :: nancount
     character(len=CS)           :: nancount_char
     character(len=CL)           :: msg_error
+    character(len=CL)           :: msg
     logical                     :: nanfound
     character(len=*), parameter :: subname='(med_methods_FB_check_for_nans)'
     ! ----------------------------------------------
@@ -2580,10 +2694,19 @@ contains
           call ESMF_FieldGet(field, farrayPtr=dataptr1d, rc=rc)
           if (chkerr(rc,__LINE__,u_FILE_u)) return
           call med_methods_check_for_nans(dataptr1d, nancount)
-       else
+       elseif (fieldrank == 2) then
           call ESMF_FieldGet(field, farrayPtr=dataptr2d, rc=rc)
           if (chkerr(rc,__LINE__,u_FILE_u)) return
           call med_methods_check_for_nans(dataptr2d, nancount)
+       elseif (fieldrank == 3) then
+          call ESMF_FieldGet(field, farrayPtr=dataptr3d, rc=rc)
+          if (chkerr(rc,__LINE__,u_FILE_u)) return
+          call med_methods_check_for_nans(dataptr3d, nancount)
+       else
+          write(msg,'(a,i0)') subname//": ERROR: unhandled field rank ", fieldrank
+          call shr_log_error(msg, &
+               line=__LINE__, file=u_FILE_u, rc=rc)
+          return
        end if
        if (nancount > 0) then
           write(nancount_char, '(i0)') nancount
@@ -2606,11 +2729,11 @@ contains
     real(r8) , intent(in)  :: dataptr(:)
     integer  , intent(out) :: nancount
     ! local variables
-    integer :: n
+    integer :: i
 
     nancount = 0
-    do n = 1,size(dataptr)
-       if (shr_infnan_isnan(dataptr(n))) then
+    do i = 1,size(dataptr)
+       if (shr_infnan_isnan(dataptr(i))) then
           nancount = nancount + 1
        end if
     end do
@@ -2622,16 +2745,151 @@ contains
     real(r8) , intent(in)  :: dataptr(:,:)
     integer  , intent(out) :: nancount
     ! local variables
-    integer :: n,k
+    integer :: i,j
 
     nancount = 0
-    do k = 1,size(dataptr, dim=1)
-       do n = 1,size(dataptr, dim=2)
-          if (shr_infnan_isnan(dataptr(k,n))) then
+    do j = 1,size(dataptr, dim=2)
+       do i = 1,size(dataptr, dim=1)
+          if (shr_infnan_isnan(dataptr(i,j))) then
              nancount = nancount + 1
           end if
        end do
     end do
   end subroutine med_methods_check_for_nans_2d
+
+  subroutine med_methods_check_for_nans_3d(dataptr, nancount)
+    use shr_infnan_mod, only: shr_infnan_isnan
+    ! input/output variables
+    real(r8) , intent(in)  :: dataptr(:,:,:)
+    integer  , intent(out) :: nancount
+    ! local variables
+    integer :: i,j,k
+
+    nancount = 0
+    do k = 1,size(dataptr, dim=3)
+       do j = 1,size(dataptr, dim=2)
+          do i = 1,size(dataptr, dim=1)
+             if (shr_infnan_isnan(dataptr(i,j,k))) then
+                nancount = nancount + 1
+             end if
+          end do
+       end do
+    end do
+  end subroutine med_methods_check_for_nans_3d
+
+  !-----------------------------------------------------------------------------
+  subroutine med_methods_FB_check_wtracers(FB, rc)
+
+    ! ----------------------------------------------
+    ! Check all water tracer fields in FB for consistency with their non-water-tracer
+    ! counterparts
+    !
+    ! Aborts if any inconsistencies are found
+    !
+    ! Should only be called in simulations set up to maintain constant water tracer
+    ! ratios: in general, water tracers will deviate from their initial, fixed ratios, and
+    ! so it makes no sense to perform these checks since they will always fail.
+    ! ----------------------------------------------
+
+    use wtracers_mod, only : wtracers_get_bulk_fieldname, wtracers_check_tracer_ratios
+    use ESMF, only : ESMF_FieldBundle, ESMF_Field
+    use ESMF, only : ESMF_FieldBundleGet, ESMF_FieldGet
+
+    ! input/output arguments
+    type(ESMF_FieldBundle), intent(in) :: FB
+    integer, intent(out) :: rc
+
+    ! local variables
+    integer :: fieldCount
+    character(ESMF_MAXSTR), allocatable :: fieldNameList(:)
+    character(ESMF_MAXSTR) :: fieldNameNonTracer
+    character(ESMF_MAXSTR) :: FBName
+    integer :: n
+    integer :: fieldrank
+    logical :: hasSuffix
+    logical :: isPresentNonTracer
+    type(ESMF_Field) :: fieldTracers
+    type(ESMF_Field) :: fieldNonTracer
+
+    ! For 1-d bulk arrays:
+    real(r8), pointer :: dataTracers2d(:,:)  ! dimensioned [tracerNum, gridcell]
+    real(r8), pointer :: dataNonTracer1d(:)  ! dimensioned [gridcell]
+
+    ! For 2-d bulk arrays:
+    real(r8), pointer :: dataTracers3d(:,:,:) ! dimensioned [ungriddedDim, tracerNum, gridcell]
+    real(r8), pointer :: dataNonTracer2d(:,:) ! dimensioned [ungriddedDim, gridcell]
+
+    character(len=CL) :: msg
+    character(len=*), parameter :: subname='(med_methods_FB_check_wtracers)'
+    ! ----------------------------------------------
+    rc = ESMF_SUCCESS
+
+    if (.not. water_tracers_do_checks) return
+
+    call ESMF_FieldBundleGet(FB, name=FBName, fieldCount=fieldCount, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
+    allocate(fieldNameList(fieldCount))
+    call ESMF_FieldBundleGet(FB, fieldNameList=fieldNameList, rc=rc)
+    if (chkerr(rc,__LINE__,u_FILE_u)) return
+
+    if (dbug_flag > 5) then
+       call ESMF_LogWrite(trim(subname)//": Checking FB: "//trim(FBName), ESMF_LOGMSG_INFO)
+    end if
+
+    do n = 1, fieldCount
+       call wtracers_get_bulk_fieldname( &
+            fieldname=fieldNameList(n), &
+            is_wtracer_field=hasSuffix, &
+            bulk_fieldname=fieldNameNonTracer)
+       if (hasSuffix) then
+          call ESMF_FieldBundleGet(FB, fieldName=fieldNameNonTracer, isPresent=isPresentNonTracer, rc=rc)
+          if (chkerr(rc,__LINE__,u_FILE_u)) return
+          if (isPresentNonTracer) then
+             if (dbug_flag > 5) then
+                call ESMF_LogWrite(trim(subname)//": Checking <" // trim(fieldNameList(n)) // &
+                     "> against <" // trim(fieldNameNonTracer) // ">", &
+                     ESMF_LOGMSG_INFO)
+             end if
+
+             call ESMF_FieldBundleGet(FB, fieldName=fieldNameList(n), field=fieldTracers, rc=rc)
+             if (chkerr(rc,__LINE__,u_FILE_u)) return
+             call ESMF_FieldBundleGet(FB, fieldName=fieldNameNonTracer, field=fieldNonTracer, rc=rc)
+             if (chkerr(rc,__LINE__,u_FILE_u)) return
+
+             call ESMF_FieldGet(fieldNonTracer, rank=fieldrank, rc=rc)
+             if (chkerr(rc,__LINE__,u_FILE_u)) return
+
+             if (fieldrank == 1) then
+                call ESMF_FieldGet(fieldTracers, farrayPtr=dataTracers2d, rc=rc)
+                if (chkerr(rc,__LINE__,u_FILE_u)) return
+                call ESMF_FieldGet(fieldNonTracer, farrayPtr=dataNonTracer1d, rc=rc)
+                if (chkerr(rc,__LINE__,u_FILE_u)) return
+                call wtracers_check_tracer_ratios(dataTracers2d, dataNonTracer1d, &
+                     trim(FBName)//":"//trim(fieldNameList(n)))
+             else if (fieldrank == 2) then
+                call ESMF_FieldGet(fieldTracers, farrayPtr=dataTracers3d, rc=rc)
+                if (chkerr(rc,__LINE__,u_FILE_u)) return
+                call ESMF_FieldGet(fieldNonTracer, farrayPtr=dataNonTracer2d, rc=rc)
+                if (chkerr(rc,__LINE__,u_FILE_u)) return
+                call wtracers_check_tracer_ratios(dataTracers3d, dataNonTracer2d, &
+                     trim(FBName)//":"//trim(fieldNameList(n)))
+             else
+                write(msg,'(a,i0)') subname//": ERROR: unhandled field rank ", fieldrank
+                call shr_log_error(msg, &
+                     line=__LINE__, file=u_FILE_u, rc=rc)
+                return
+             end if
+          else
+             ! This is the situation for a small number of fields where we have a tracer
+             ! field without a corresponding non-tracer field.
+             if (dbug_flag > 5) then
+                call ESMF_LogWrite(trim(subname)//": Skipping check for <" // trim(fieldNameList(n)) // &
+                     "> which has no corresponding non-tracer field", ESMF_LOGMSG_INFO)
+             end if
+          end if
+       end if
+    end do
+
+  end subroutine med_methods_FB_check_wtracers
 
 end module med_methods_mod

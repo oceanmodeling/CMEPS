@@ -37,6 +37,8 @@ module MED
   use med_methods_mod          , only : FB_diagnose        => med_methods_FB_diagnose
   use med_methods_mod          , only : FB_getFieldN       => med_methods_FB_getFieldN
   use med_methods_mod          , only : clock_timeprint    => med_methods_clock_timeprint
+  use med_field_info_mod       , only : med_field_info_type
+  use med_field_info_mod       , only : med_field_info_array_from_names_wtracers, med_field_info_array_from_state
   use med_utils_mod            , only : memcheck           => med_memcheck
   use med_internalstate_mod    , only : InternalState, med_internalstate_init, med_internalstate_coupling
   use med_internalstate_mod    , only : med_internalstate_defaultmasks, logunit, maintask
@@ -54,6 +56,8 @@ module MED
   use med_phases_profile_mod   , only : med_phases_profile_finalize
   use shr_log_mod              , only : shr_log_error
   use med_ufs_trace_wrapper_mod, only : ufs_trace_init_wrapper, ufs_trace_wrapper, ufs_trace_finalize_wrapper
+
+
 
   implicit none
   private
@@ -696,7 +700,7 @@ contains
     use NUOPC , only : NUOPC_CompAttributeGet, NUOPC_CompAttributeSet, NUOPC_CompAttributeAdd
     use esmFlds, only : med_fldlist_init1, med_fld_GetFldInfo, med_fldList_entry_type
     use med_phases_history_mod, only : med_phases_history_init
-    use med_methods_mod       , only : mediator_checkfornans
+    use med_methods_mod       , only : mediator_checkfornans, water_tracers_do_checks
 
     ! input/output variables
     type(ESMF_GridComp)  :: gcomp
@@ -855,7 +859,7 @@ contains
     else if (coupling_mode(1:3) == 'ufs') then
        call esmFldsExchange_ufs(gcomp, phase='advertise', rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
-    else if (coupling_mode(1:4) == 'hafs') then
+    else if (trim(coupling_mode) == 'hafs') then
        call esmFldsExchange_hafs(gcomp, phase='advertise', rc=rc)
        if (ChkErr(rc,__LINE__,u_FILE_u)) return
     else if (trim(coupling_mode) == 'coastal') then
@@ -981,6 +985,19 @@ contains
           write(logunit,*) ' Fields will NOT be checked for NaN values when passed from mediator to component'
        endif
     endif
+
+    ! Should mediator check water tracer consistency?
+    call NUOPC_CompAttributeGet(gcomp, name="water_tracers_do_checks", value=cvalue, &
+         isPresent=isPresent, isSet=isSet, rc=rc)
+    if (ChkErr(rc,__LINE__,u_FILE_u)) return
+    if (isPresent .and. isSet) then
+       read(cvalue, *) water_tracers_do_checks
+    else
+       water_tracers_do_checks = .false.
+    endif
+    if(maintask) then
+       write(logunit,*) ' water_tracers_do_checks is ',water_tracers_do_checks
+    end if
 
     ! Should target component use all data for first time step?
     do ncomp = 1,ncomps
@@ -1664,6 +1681,7 @@ contains
 
     ! local variables
     type(InternalState)                :: is_local
+    type(med_field_info_type), allocatable :: field_info_array(:)
     type(ESMF_Clock)                   :: clock
     type(ESMF_State)                   :: importState, exportState
     type(ESMF_Time)                    :: time
@@ -1778,6 +1796,12 @@ contains
                        trim(compname(n1))//'_'//trim(compname(n2))
                end if
 
+               call med_field_info_array_from_state( &
+                    state = is_local%wrap%NStateImp(n1), &
+                    field_info_array = field_info_array, &
+                    rc = rc)
+               if (ChkErr(rc,__LINE__,u_FILE_u)) return
+
                ! Check import FB, if there is no field in it then use export FB
                ! to provide mesh information
                call State_GetNumFields(is_local%wrap%NStateImp(n2), &
@@ -1786,13 +1810,13 @@ contains
 
                if (fieldCount == 0) then
                  call FB_init(is_local%wrap%FBImp(n1,n2), is_local%wrap%flds_scalar_name, &
+                      field_info_array=field_info_array, &
                       STgeom=is_local%wrap%NStateExp(n2), &
-                      STflds=is_local%wrap%NStateImp(n1), &
                       name='FBImp'//trim(compname(n1))//'_'//trim(compname(n2)), rc=rc)
                else
                  call FB_init(is_local%wrap%FBImp(n1,n2), is_local%wrap%flds_scalar_name, &
+                      field_info_array=field_info_array, &
                       STgeom=is_local%wrap%NStateImp(n2), &
-                      STflds=is_local%wrap%NStateImp(n1), &
                       name='FBImp'//trim(compname(n1))//'_'//trim(compname(n2)), rc=rc)
                end if
                if (ChkErr(rc,__LINE__,u_FILE_u)) return
@@ -1820,14 +1844,19 @@ contains
             allocate(fldnames(fieldCount))
             call med_fldList_getfldnames(fldListMed_ocnalb%fields, fldnames, rc=rc)
             if (ChkErr(rc,__LINE__,u_FILE_u)) return
+            call med_field_info_array_from_names_wtracers( &
+                 field_names = fldnames, &
+                 field_info_array = field_info_array, &
+                 rc = rc)
+            if (ChkErr(rc,__LINE__,u_FILE_u)) return
             call FB_init(is_local%wrap%FBMed_ocnalb_a, is_local%wrap%flds_scalar_name, &
-                 STgeom=is_local%wrap%NStateImp(compatm), fieldnamelist=fldnames, name='FBMed_ocnalb_a', rc=rc)
+                 field_info_array=field_info_array, STgeom=is_local%wrap%NStateImp(compatm), name='FBMed_ocnalb_a', rc=rc)
             if (ChkErr(rc,__LINE__,u_FILE_u)) return
             if (maintask) then
                write(logunit,'(a)') trim(subname)//' initializing FB FBMed_ocnalb_a'
             end if
             call FB_init(is_local%wrap%FBMed_ocnalb_o, is_local%wrap%flds_scalar_name, &
-                 STgeom=is_local%wrap%NStateImp(compocn), fieldnamelist=fldnames, name='FBMed_ocnalb_o', rc=rc)
+                 field_info_array = field_info_array, STgeom=is_local%wrap%NStateImp(compocn), name='FBMed_ocnalb_o', rc=rc)
             if (ChkErr(rc,__LINE__,u_FILE_u)) return
             if (maintask) then
                write(logunit,'(a)') trim(subname)//' initializing FB FBMed_ocnalb_o'
@@ -1873,7 +1902,7 @@ contains
       else if (coupling_mode(1:3) == 'ufs') then
          call esmFldsExchange_ufs(gcomp, phase='initialize', rc=rc)
          if (ChkErr(rc,__LINE__,u_FILE_u)) return
-      else if (coupling_mode(1:4) == 'hafs') then
+      else if (trim(coupling_mode) == 'hafs') then
          call esmFldsExchange_hafs(gcomp, phase='initialize', rc=rc)
          if (ChkErr(rc,__LINE__,u_FILE_u)) return
       else if (trim(coupling_mode) == 'coastal') then
