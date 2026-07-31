@@ -288,12 +288,13 @@ contains
     ! to ice: ocean fields 
     ! ---------------------------------------------------------------------
     if (coastal_attr%ocn_present .and. coastal_attr%ice_present) then
-      allocate(S_flds(8))
+      allocate(S_flds(9))
       S_flds = (/'So_u   ',  & ! ocn_current_zonal
                  'So_v   ',  & ! ocn_current_merid
                  'So_t   ',  & ! SST
                  'So_s   ',  & ! SSS 
                  'So_hmix',  & ! depth of ml
+                 'So_h   ',  &
                  'So_dhdx',  & ! tilt-x 
                  'So_dhdy',  & ! tilt-y 
                  'Fioo_q '/)    ! heat flux 
@@ -625,12 +626,13 @@ contains
     ! ---------------------------------------
 
     if (coastal_attr%ocn_present .and. coastal_attr%ice_present) then
-      allocate(S_flds(8))
+      allocate(S_flds(9))
       S_flds = (/'So_u   ',  & ! ocn_current_zonal
                  'So_v   ',  & ! ocn_current_merid
                  'So_t   ',  & ! SST
                  'So_s   ',  & ! SSS 
                  'So_hmix',  & ! depth of ml
+                 'So_h   ',  & 
                  'So_dhdx',  & ! tilt-x 
                  'So_dhdy',  & ! tilt-y 
                  'Fioo_qi'/)   ! heat flux  
