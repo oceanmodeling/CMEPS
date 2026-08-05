@@ -293,10 +293,10 @@ contains
                  'So_v   ',  & ! ocn_current_merid
                  'So_t   ',  & ! SST
                  'So_s   ',  & ! SSS 
-                 'So_h   ',  & ! depth of ml
+                 'So_hmix',  & ! mixing layer depth
                  'So_dhdx',  & ! tilt-x 
                  'So_dhdy',  & ! tilt-y 
-                 'Fioo_q '/)    ! heat flux 
+                 'Fioo_q '/)   ! heat flux
       do n = 1,size(S_flds)
          fldname = trim(S_flds(n))
          call addfld_from(compocn, trim(fldname))
@@ -630,10 +630,10 @@ contains
                  'So_v   ',  & ! ocn_current_merid
                  'So_t   ',  & ! SST
                  'So_s   ',  & ! SSS 
-                 'So_h   ',  & ! depth of ml
+                 'So_hmix',  & ! mixing layer depth
                  'So_dhdx',  & ! tilt-x 
                  'So_dhdy',  & ! tilt-y 
-                 'Fioo_qi'/)   ! heat flux  
+                 'Fioo_qi'/)   ! heat flux
 
     call ESMF_LogWrite(trim(subname)//": done", ESMF_LOGMSG_INFO)
     do n = 1,size(S_flds)
